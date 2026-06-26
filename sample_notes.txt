@@ -1,0 +1,6 @@
+Advanced Financial Management (AFM) Paper-2 Syllabus notes on Derivatives Analysis and Valuation.
+A European call option grants the holder the right to buy an asset at a predetermined strike price on a specific expiration date. 
+Under the Black-Scholes-Merton (BSM) valuation model, the price of a European call option is determined by the spot price, strike price, risk-free interest rate, time to maturity, and volatility. 
+Volatility, measured as the standard deviation of stock returns, is the most crucial unobservable parameter. If volatility increases, call premiums rise because the potential for high upside gains increases, while the downside loss is capped at the premium paid.
+For CA Final AFM exams, delta represents the rate of change of option price with respect to the underlying stock price. For a call option, delta ranges from 0 to 1, while for a put option, it ranges from -1 to 0. 
+Gamma measures the rate of change of delta and is highest for at-the-money options.
