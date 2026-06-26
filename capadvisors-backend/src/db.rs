@@ -146,6 +146,9 @@ impl DbHelper {
         )
         .await?;
 
+        // TEMPORARY: drop legacy student_ratings schema so it can be recreated clean
+        conn.execute_batch("DROP TABLE IF EXISTS student_ratings;").await?;
+
         // Create Users Table
         conn.execute(
             "CREATE TABLE IF NOT EXISTS users (
