@@ -146,6 +146,19 @@ impl DbHelper {
         )
         .await?;
 
+        // Create Users Table
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'student',
+                created_at TEXT NOT NULL
+            );",
+            (),
+        )
+        .await?;
+
         // Create Student Ratings Table
         conn.execute(
             "CREATE TABLE IF NOT EXISTS student_ratings (

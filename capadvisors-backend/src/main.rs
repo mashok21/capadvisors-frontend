@@ -3,9 +3,13 @@ use std::net::SocketAddr;
 use tower_http::cors::{Any, CorsLayer};
 
 mod db;
+mod middleware {
+    pub mod auth;
+}
 mod routes {
     pub mod nexus;
     pub mod ranking;
+    pub mod auth;
 }
 pub mod utils;
 
@@ -18,7 +22,6 @@ async fn main() {
         .allow_methods(Any)
         .allow_headers(Any);
 
-    // Initialize database
     let db_helper = db::DbHelper::init().await;
 
     let app = Router::new()
@@ -31,15 +34,16 @@ async fn main() {
         .route("/api/nexus/chapters/{chapter_id}/questions", get(routes::nexus::get_chapter_questions))
         .route("/api/ranking/tournaments/{tournament_id}/process", post(routes::ranking::process_tournament))
         .route("/api/ranking/leaderboard", get(routes::ranking::get_leaderboard))
+        .route("/api/auth/register", post(routes::auth::register))
+        .route("/api/auth/login", post(routes::auth::login))
         .with_state(db_helper)
         .layer(cors);
 
-    // Railway sets the PORT environment variable automatically
     let port = std::env::var("PORT")
         .unwrap_or_else(|_| "3000".to_string())
         .parse::<u16>()
         .unwrap();
-    
+
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
     println!("Listening on {}", addr);
