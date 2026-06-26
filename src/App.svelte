@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import { auth } from './lib/auth.svelte.js';
 
   const baseApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -431,8 +432,99 @@
   onMount(() => {
     checkBackendStatus();
   });
+
+  // Auth form state
+  let authEmail = $state('');
+  let authPassword = $state('');
+  let authIsRegistering = $state(false);
+  let authIsLoading = $state(false);
+  let authError = $state('');
+
+  async function handleAuthSubmit(e) {
+    e.preventDefault();
+    authIsLoading = true;
+    authError = '';
+    const endpoint = authIsRegistering ? '/api/auth/register' : '/api/auth/login';
+    try {
+      const res = await fetch(`${baseApiUrl}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: authEmail, password: authPassword })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        auth.login(data.token, { id: data.user_id, role: data.role });
+      } else {
+        const msg = await res.text();
+        authError = msg || 'Authentication failed. Please check your credentials.';
+      }
+    } catch (_) {
+      authError = 'Could not reach the server. Please ensure the backend is running.';
+    } finally {
+      authIsLoading = false;
+    }
+  }
 </script>
 
+{#if !auth.isAuthenticated}
+<main class="auth-container">
+  <div class="auth-card">
+    <div class="auth-header">
+      <div class="auth-logo-mark">CAPADVISORS</div>
+      <h2 class="auth-title">{authIsRegistering ? 'Create Account' : 'Welcome Back'}</h2>
+      <p class="auth-subtitle">CA Final AFM Nexus Platform</p>
+    </div>
+
+    {#if authError}
+      <div class="auth-error-banner">{authError}</div>
+    {/if}
+
+    <form class="auth-form" onsubmit={handleAuthSubmit}>
+      <div class="auth-field">
+        <label for="auth-email">Email Address</label>
+        <input
+          id="auth-email"
+          type="email"
+          bind:value={authEmail}
+          placeholder="your@email.com"
+          required
+          autocomplete="email"
+        />
+      </div>
+      <div class="auth-field">
+        <label for="auth-password">Password</label>
+        <input
+          id="auth-password"
+          type="password"
+          bind:value={authPassword}
+          placeholder="••••••••"
+          required
+          autocomplete={authIsRegistering ? 'new-password' : 'current-password'}
+        />
+      </div>
+      <button type="submit" class="auth-submit-btn" disabled={authIsLoading}>
+        {#if authIsLoading}
+          <span class="spinner"></span>
+          {authIsRegistering ? 'Creating account...' : 'Signing in...'}
+        {:else}
+          {authIsRegistering ? 'Create Account' : 'Sign In'}
+        {/if}
+      </button>
+    </form>
+
+    <p class="auth-toggle-row">
+      {authIsRegistering ? 'Already have an account?' : "Don't have an account?"}
+      <button
+        type="button"
+        class="auth-toggle-btn"
+        onclick={() => { authIsRegistering = !authIsRegistering; authError = ''; }}
+      >
+        {authIsRegistering ? 'Sign In' : 'Register'}
+      </button>
+    </p>
+  </div>
+</main>
+{:else}
 <div class="app-container">
   <div class="bg-glow"></div>
 
@@ -858,3 +950,4 @@
     © 2026 Capadvisors. Crafted for premium asset & learning analytics. Powered by <span class="badge svelte">Svelte 5</span> & <span class="badge rust">Rust Axum</span>.
   </footer>
 </div>
+{/if}
