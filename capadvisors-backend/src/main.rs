@@ -109,6 +109,10 @@ async fn main() {
             "/api/quizzes/submit",
             post(routes::quiz_submit::submit_quiz),
         )
+        .route(
+            "/api/users/{student_id}/activity",
+            get(routes::ranking::get_user_activity),
+        )
         .route("/api/map-document", post(routes::map::map_document))
         .route(
             "/api/map-document/jobs/{job_id}",

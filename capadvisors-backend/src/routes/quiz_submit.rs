@@ -1,5 +1,6 @@
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::{
@@ -48,6 +49,7 @@ pub struct QuizSubmitResponse {
 
 struct EvaluatedAnswer {
     question_id: String,
+    chapter_id: String,
     q_rating: f64,
     q_rd: f64,
     q_vol: f64,
@@ -91,7 +93,7 @@ pub async fn submit_quiz(
     let mut skipped: usize = 0;
 
     for answer in &payload.answers {
-        let Some((q_rating, q_rd, q_vol, correct_answer)) =
+        let Some((q_rating, q_rd, q_vol, correct_answer, chapter_id)) =
             fetch_question(&conn, &answer.question_id).await?
         else {
             skipped += 1;
@@ -112,6 +114,7 @@ pub async fn submit_quiz(
 
         evaluated.push(EvaluatedAnswer {
             question_id: answer.question_id.clone(),
+            chapter_id,
             q_rating,
             q_rd,
             q_vol,
@@ -210,6 +213,40 @@ pub async fn submit_quiz(
         })?;
     }
 
+    // Record per-chapter activity for heatmap and focus badges.
+    // Aggregate correct/total counts per chapter within this quiz session.
+    let mut chapter_stats: HashMap<String, (i64, i64)> = HashMap::new();
+    for e in &evaluated {
+        let entry = chapter_stats.entry(e.chapter_id.clone()).or_insert((0, 0));
+        entry.0 += if e.score > 0.5 { 1 } else { 0 };
+        entry.1 += 1;
+    }
+    for (chapter_id, (correct, total)) in &chapter_stats {
+        let act_id = Uuid::new_v4().to_string();
+        tx.execute(
+            "INSERT INTO quiz_activity
+                 (id, student_id, chapter_id, quiz_date, correct_count, total_count)
+             VALUES (?1, ?2, ?3, date('now'), ?4, ?5)
+             ON CONFLICT(student_id, chapter_id, quiz_date) DO UPDATE SET
+                 correct_count = correct_count + excluded.correct_count,
+                 total_count   = total_count   + excluded.total_count",
+            libsql::params![
+                act_id,
+                student_id.clone(),
+                chapter_id.clone(),
+                *correct,
+                *total,
+            ],
+        )
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Activity record failed: {}", e),
+            )
+        })?;
+    }
+
     tx.commit()
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -261,15 +298,16 @@ async fn fetch_student_rating(
     }
 }
 
-/// Returns `Some((rating, rd, volatility, correct_answer))` or `None` if the
-/// question ID doesn't exist in quiz_databank.
+/// Returns `Some((rating, rd, volatility, correct_answer, chapter_id))` or `None`
+/// if the question ID doesn't exist in quiz_databank.
 async fn fetch_question(
     conn: &libsql::Connection,
     question_id: &str,
-) -> Result<Option<(f64, f64, f64, String)>, (StatusCode, String)> {
+) -> Result<Option<(f64, f64, f64, String, String)>, (StatusCode, String)> {
     let mut stmt = conn
         .prepare(
-            "SELECT rating, rating_deviation, volatility, correct_answer
+            "SELECT rating, rating_deviation, volatility, correct_answer,
+                    COALESCE(chapter_id, '')
              FROM   quiz_databank
              WHERE  id = ?1",
         )
@@ -287,6 +325,7 @@ async fn fetch_question(
             row.get(1).map_err(ie)?,
             row.get(2).map_err(ie)?,
             row.get::<String>(3).unwrap_or_default(),
+            row.get::<String>(4).unwrap_or_default(),
         )))
     } else {
         Ok(None)

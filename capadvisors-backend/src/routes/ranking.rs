@@ -6,7 +6,7 @@ use axum::{
 };
 use libsql::Connection;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 use crate::{
@@ -65,6 +65,15 @@ pub struct LeaderboardEntry {
     pub national_rank: i64,
     pub percentile: f64,
     pub rank_tier: String,
+    pub accuracy_correct: i64,
+    pub accuracy_total: i64,
+    pub focus_badges: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ActivityDay {
+    pub date: String,
+    pub count: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -103,6 +112,48 @@ pub async fn get_leaderboard(State(db): State<DbHelper>) -> impl IntoResponse {
         Ok(entries) => (StatusCode::OK, Json(entries)).into_response(),
         Err(message) => (StatusCode::INTERNAL_SERVER_ERROR, message).into_response(),
     }
+}
+
+// GET /api/users/:student_id/activity
+// Returns per-day quiz counts for the past 12 weeks (84 days), used by the
+// leaderboard heatmap drawer. Public endpoint — only exposes aggregate counts.
+pub async fn get_user_activity(
+    Path(student_id): Path<String>,
+    State(db): State<DbHelper>,
+) -> impl IntoResponse {
+    let conn = db.get_conn();
+    let mut stmt = match conn
+        .prepare(
+            "SELECT quiz_date, SUM(total_count) as cnt
+             FROM   quiz_activity
+             WHERE  student_id = ?1
+               AND  quiz_date  >= date('now', '-84 days')
+             GROUP  BY quiz_date
+             ORDER  BY quiz_date ASC",
+        )
+        .await
+    {
+        Ok(s) => s,
+        Err(e) => {
+            return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
+    };
+
+    let mut rows = match stmt.query(libsql::params![student_id]).await {
+        Ok(r) => r,
+        Err(e) => {
+            return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
+    };
+
+    let mut days: Vec<ActivityDay> = Vec::new();
+    while let Ok(Some(row)) = rows.next().await {
+        let date: String = row.get(0).unwrap_or_default();
+        let count: i64 = row.get(1).unwrap_or(0);
+        days.push(ActivityDay { date, count });
+    }
+
+    Json(days).into_response()
 }
 
 async fn process_tournament_inner(
@@ -390,10 +441,97 @@ async fn get_leaderboard_inner(db: DbHelper) -> Result<Vec<LeaderboardEntry>, St
             national_rank,
             percentile,
             rank_tier: rank_tier_from_rating(rating),
+            accuracy_correct: 0,
+            accuracy_total: 0,
+            focus_badges: Vec::new(),
         });
     }
 
+    // Enrich entries with accuracy stats and focus badges from quiz_activity.
+    // Both queries are cheap full-table scans — activity table is sparse at this stage.
+    let accuracy_map = fetch_accuracy_map(&conn).await?;
+    let badges_map = fetch_badges_map(&conn).await?;
+
+    for entry in &mut entries {
+        if let Some(&(correct, total)) = accuracy_map.get(&entry.student_id) {
+            entry.accuracy_correct = correct;
+            entry.accuracy_total = total;
+        }
+        if let Some(badges) = badges_map.get(&entry.student_id) {
+            entry.focus_badges = badges.clone();
+        }
+    }
+
     Ok(entries)
+}
+
+/// Aggregates correct_count / total_count per student across all quiz_activity rows.
+async fn fetch_accuracy_map(conn: &Connection) -> Result<HashMap<String, (i64, i64)>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT student_id, SUM(correct_count), SUM(total_count)
+             FROM   quiz_activity
+             GROUP  BY student_id",
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut rows = stmt.query(()).await.map_err(|e| e.to_string())?;
+
+    let mut map = HashMap::new();
+    while let Some(row) = rows.next().await.map_err(|e| e.to_string())? {
+        let sid: String = row.get(0).map_err(|e| e.to_string())?;
+        let correct: i64 = row.get(1).unwrap_or(0);
+        let total: i64 = row.get(2).unwrap_or(0);
+        map.insert(sid, (correct, total));
+    }
+    Ok(map)
+}
+
+/// Returns up to 3 focus badge labels per student, ranked by total correct answers.
+async fn fetch_badges_map(conn: &Connection) -> Result<HashMap<String, Vec<String>>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT qa.student_id, c.chapter_name, SUM(qa.correct_count) as score
+             FROM   quiz_activity qa
+             JOIN   chapters c ON c.id = qa.chapter_id
+             WHERE  qa.chapter_id != ''
+             GROUP  BY qa.student_id, qa.chapter_id
+             ORDER  BY qa.student_id ASC, score DESC",
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut rows = stmt.query(()).await.map_err(|e| e.to_string())?;
+
+    let mut map: HashMap<String, Vec<String>> = HashMap::new();
+    while let Some(row) = rows.next().await.map_err(|e| e.to_string())? {
+        let sid: String = row.get(0).map_err(|e| e.to_string())?;
+        let chapter_name: String = row.get(1).unwrap_or_default();
+        let badges = map.entry(sid).or_default();
+        if badges.len() < 3 {
+            badges.push(chapter_badge(&chapter_name));
+        }
+    }
+    Ok(map)
+}
+
+fn chapter_badge(name: &str) -> String {
+    if name.contains("Financial Policy") { "Corp Strategy" }
+    else if name.contains("Risk Management") { "Risk Mgmt" }
+    else if name.contains("Capital Budgeting") { "Cap Budget" }
+    else if name.contains("Security Analysis") { "Sec Analysis" }
+    else if name.contains("Security Valuation") { "Valuation" }
+    else if name.contains("Portfolio") { "Portfolio" }
+    else if name.contains("Securitization") { "Securitization" }
+    else if name.contains("Mutual Funds") { "Mutual Funds" }
+    else if name.contains("Derivatives") { "Derivatives" }
+    else if name.contains("Foreign Exchange") { "Forex" }
+    else if name.contains("International") { "Intl Finance" }
+    else if name.contains("Interest Rate") { "Interest Rate" }
+    else if name.contains("Business Valuation") { "Biz Valuation" }
+    else if name.contains("Mergers") { "M&A" }
+    else if name.contains("Startup") { "Startup" }
+    else { "General" }
+    .to_string()
 }
 
 async fn count_rated_students(conn: &Connection) -> Result<i64, libsql::Error> {

@@ -361,6 +361,30 @@ impl DbHelper {
             }
         }
 
+        // Per-day, per-chapter activity log used by the leaderboard heatmap and
+        // focus badge computation. UNIQUE on (student_id, chapter_id, quiz_date)
+        // lets the quiz submission UPSERT accumulate counts idempotently.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS quiz_activity (
+                id            TEXT PRIMARY KEY,
+                student_id    TEXT NOT NULL,
+                chapter_id    TEXT NOT NULL DEFAULT '',
+                quiz_date     TEXT NOT NULL,
+                correct_count INTEGER NOT NULL DEFAULT 0,
+                total_count   INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(student_id, chapter_id, quiz_date)
+            );",
+            (),
+        )
+        .await?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS quiz_activity_student_idx
+             ON quiz_activity (student_id, quiz_date);",
+            (),
+        )
+        .await?;
+
         // Seed Chapters
         self.seed_chapters(&conn).await?;
         Ok(())
