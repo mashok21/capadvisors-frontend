@@ -7,9 +7,10 @@ mod middleware {
     pub mod auth;
 }
 mod routes {
+    pub mod auth;
+    pub mod map;
     pub mod nexus;
     pub mod ranking;
-    pub mod auth;
 }
 pub mod utils;
 
@@ -36,6 +37,7 @@ async fn main() {
         .route("/api/ranking/leaderboard", get(routes::ranking::get_leaderboard))
         .route("/api/auth/register", post(routes::auth::register))
         .route("/api/auth/login", post(routes::auth::login))
+        .route("/api/map-document", post(routes::map::map_document))
         .with_state(db_helper)
         .layer(cors);
 

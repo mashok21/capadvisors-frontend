@@ -175,6 +175,62 @@ impl DbHelper {
         )
         .await?;
 
+        // ── Vector store for the Map & Analyse pipeline ──────────────────────
+        // Extends document_chunks with a 768-dim F32_BLOB column.
+        // Dimension MUST match `EMBEDDING_DIM` in utils/embedding.rs.
+        // This table is only meaningful against Turso cloud; local SQLite
+        // does not ship the libsql vector extension.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS chunk_embeddings (
+                chunk_id   TEXT PRIMARY KEY,
+                chapter_id TEXT,
+                embedding  F32_BLOB(768),
+                FOREIGN KEY(chunk_id) REFERENCES document_chunks(id) ON DELETE CASCADE
+            );",
+            (),
+        )
+        .await?;
+
+        // DiskANN vector index — enables sub-linear approximate nearest-neighbour
+        // search via `vector_top_k('chunk_embeddings_vec_idx', query, k)`.
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS chunk_embeddings_vec_idx
+             ON chunk_embeddings (libsql_vector_idx(embedding));",
+            (),
+        )
+        .await?;
+
+        // Persists the structured JSON output from each LLM gap-analysis run.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS chapter_gap_analysis (
+                id                    TEXT PRIMARY KEY,
+                chapter_id            TEXT NOT NULL,
+                document_id           TEXT NOT NULL,
+                coverage_score        REAL NOT NULL,
+                gap_topics_json       TEXT NOT NULL DEFAULT '[]',
+                compliant_topics_json TEXT NOT NULL DEFAULT '[]',
+                recommendations_json  TEXT NOT NULL DEFAULT '[]',
+                analyzed_at           TEXT NOT NULL,
+                FOREIGN KEY(chapter_id)  REFERENCES chapters(id),
+                FOREIGN KEY(document_id) REFERENCES source_documents(id)
+            );",
+            (),
+        )
+        .await?;
+
+        // Schema evolution: add Gemini map-analysis columns to chapter_gap_analysis.
+        // ALTER TABLE ADD COLUMN errors only when the column already exists, so
+        // `.ok()` makes each migration idempotent across server restarts.
+        for col_sql in [
+            "ALTER TABLE chapter_gap_analysis ADD COLUMN coverage_metric            INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE chapter_gap_analysis ADD COLUMN computational_checks_json  TEXT    NOT NULL DEFAULT '[]'",
+            "ALTER TABLE chapter_gap_analysis ADD COLUMN complex_exam_question      TEXT    NOT NULL DEFAULT ''",
+            "ALTER TABLE chapter_gap_analysis ADD COLUMN scoring_rubric_json        TEXT    NOT NULL DEFAULT '{}'",
+            "ALTER TABLE chapter_gap_analysis ADD COLUMN diagnostic_variants_json   TEXT    NOT NULL DEFAULT '[]'",
+        ] {
+            conn.execute(col_sql, ()).await.ok();
+        }
+
         // Create Rating History Table
         conn.execute(
             "CREATE TABLE IF NOT EXISTS rating_history (
