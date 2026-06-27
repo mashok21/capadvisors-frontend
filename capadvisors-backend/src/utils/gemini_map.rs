@@ -58,6 +58,37 @@ pub struct DiagnosticVariant {
     pub key_difference: String,
 }
 
+impl GeminiMapResult {
+    /// Validates the structural integrity of the Gemini response before it is
+    /// persisted.  Returns `Err` with a human-readable diagnosis on failure.
+    ///
+    /// Checks:
+    /// 1. The sum of individual rubric step marks matches `total_marks`
+    ///    (within a 0.5-mark tolerance for floating-point rounding).
+    /// 2. `alternate_diagnostic_variants` contains at most 3 items.
+    pub fn validate(&self) -> Result<(), String> {
+        let computed_sum: f64 = self.scoring_rubric_json.steps.iter().map(|s| s.marks).sum();
+        let expected = self.scoring_rubric_json.total_marks as f64;
+        if (computed_sum - expected).abs() > 0.5 {
+            return Err(format!(
+                "Rubric step marks sum to {:.2} but total_marks is {} \
+                 (delta {:.2} exceeds 0.5-mark tolerance)",
+                computed_sum,
+                self.scoring_rubric_json.total_marks,
+                (computed_sum - expected).abs()
+            ));
+        }
+        let variant_count = self.alternate_diagnostic_variants.len();
+        if variant_count > 3 {
+            return Err(format!(
+                "Expected at most 3 diagnostic variants, Gemini returned {}",
+                variant_count
+            ));
+        }
+        Ok(())
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Gemini API client
 // ─────────────────────────────────────────────────────────────────────────────

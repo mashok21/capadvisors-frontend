@@ -1,9 +1,8 @@
 use axum::{
     extract::FromRequestParts,
-    http::{request::Parts, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
 };
-use async_trait::async_trait;
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
 
@@ -18,14 +17,16 @@ pub struct Claims {
 #[derive(Clone)]
 pub struct AuthUser(pub Claims);
 
-#[async_trait]
 impl<S> FromRequestParts<S> for AuthUser
 where
     S: Send + Sync,
 {
     type Rejection = Response;
 
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts<'a, 'b>(
+        parts: &'a mut axum::http::request::Parts,
+        _state: &'b S,
+    ) -> Result<Self, Self::Rejection> {
         let auth_header = parts
             .headers
             .get(axum::http::header::AUTHORIZATION)

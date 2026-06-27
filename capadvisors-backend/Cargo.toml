@@ -22,7 +22,7 @@ argon2 = { version = "0.5", features = ["std"] }
 password-hash = { version = "0.5", features = ["rand_core"] }
 chrono = { version = "0.4", features = ["serde"] }
 rand = "0.8"
-async-trait = "0.1"
+tempfile = "3"
 
 [patch.crates-io]
 zeroize = { git = "https://github.com/RustCrypto/utils.git", tag = "zeroize-v1.8.2" }

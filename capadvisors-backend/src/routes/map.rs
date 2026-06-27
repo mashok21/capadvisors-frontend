@@ -5,12 +5,14 @@ use axum::{
     Json,
 };
 use serde::Serialize;
+use std::{io::Write, sync::Arc};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use uuid::Uuid;
 
 use crate::{
     db::DbHelper,
     utils::{
-        gemini_map::{call_gemini_map, DiagnosticVariant, ScoringRubric},
+        gemini_map::{call_gemini_map, DiagnosticVariant, GeminiMapResult, ScoringRubric},
         text::word_count,
     },
 };
@@ -58,22 +60,39 @@ pub struct MapAnalysisResult {
 // Gemini 2.5 Pro on a full AFM chapter can take 60–180 seconds.
 // Railway terminates connections at 60 s, so we dispatch immediately and let
 // the client poll GET /api/map-document/jobs/{id} for the result.
+//
+// Concurrency is bounded to 3 concurrent jobs via the shared Semaphore.
+// The permit is moved into the background task and held for its entire
+// lifetime, so the slot is not released until Gemini returns.
+
+const MAX_EXTRACTED_TEXT_BYTES: usize = 8 * 1024 * 1024; // 8 MB
 
 pub async fn map_document(
     State(db): State<DbHelper>,
+    State(semaphore): State<Arc<Semaphore>>,
     mut multipart: Multipart,
 ) -> Result<(StatusCode, Json<JobSubmitResponse>), (StatusCode, String)> {
-    // ── 1. Parse multipart ────────────────────────────────────────────────────
+    // ── 0. Concurrency gate — non-blocking acquire, 429 if queue is full ──────
+    let permit = semaphore.try_acquire_owned().map_err(|_| {
+        (
+            StatusCode::TOO_MANY_REQUESTS,
+            "Mapping queue is saturated (max 3 concurrent jobs). Retry shortly.".to_string(),
+        )
+    })?;
+
+    // ── 1. Stream multipart fields to disk instead of doubling heap ───────────
     let mut chapter_id = String::new();
     let mut file_name = String::new();
-    let mut file_data: Vec<u8> = Vec::new();
+    let mut temp_file: Option<tempfile::NamedTempFile> = None;
 
-    while let Some(field) = multipart
+    while let Some(mut field) = multipart
         .next_field()
         .await
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("Multipart error: {}", e)))?
     {
-        match field.name().unwrap_or("") {
+        // Capture the field name as owned String before any further borrows.
+        let field_name = field.name().unwrap_or("").to_owned();
+        match field_name.as_str() {
             "chapter_id" => {
                 chapter_id = field
                     .text()
@@ -82,11 +101,25 @@ pub async fn map_document(
             }
             "file" => {
                 file_name = field.file_name().unwrap_or("document.pdf").to_string();
-                file_data = field
-                    .bytes()
+                let mut tmp = tempfile::NamedTempFile::new().map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Temp file creation failed: {}", e),
+                    )
+                })?;
+                while let Some(chunk) = field
+                    .chunk()
                     .await
-                    .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?
-                    .to_vec();
+                    .map_err(|e| (StatusCode::BAD_REQUEST, format!("Chunk read error: {}", e)))?
+                {
+                    tmp.write_all(&chunk).map_err(|e| {
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!("Chunk write failed: {}", e),
+                        )
+                    })?;
+                }
+                temp_file = Some(tmp);
             }
             _ => {}
         }
@@ -95,14 +128,53 @@ pub async fn map_document(
     if chapter_id.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "chapter_id field is required".to_string()));
     }
-    if file_data.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "file field is missing or empty".to_string()));
-    }
+    let tmp = temp_file
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "file field is missing or empty".to_string()))?;
 
-    // ── 2. Extract raw text (synchronous; fast — done inline before dispatch) ─
-    let raw_text = extract_pdf_text(&file_name, &file_data)?;
+    // ── 2. Extract text on the blocking thread pool ───────────────────────────
+    // pdf_extract is synchronous and CPU-intensive. Moving it off the async
+    // executor keeps tokio's threads free for other requests.
+    let file_name_bg = file_name.clone();
+    let raw_text = tokio::task::spawn_blocking(
+        move || -> Result<String, (StatusCode, String)> {
+            let path = tmp.path().to_path_buf();
+            let text = if file_name_bg.to_lowercase().ends_with(".pdf") {
+                pdf_extract::extract_text(&path).map_err(|e| {
+                    (
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        format!("PDF parsing failed: {}", e),
+                    )
+                })?
+            } else {
+                std::fs::read_to_string(&path).map_err(|e| {
+                    (
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        format!("File read failed: {}", e),
+                    )
+                })?
+            };
+            drop(tmp); // delete NamedTempFile from disk now that we have the text
+            if text.len() > MAX_EXTRACTED_TEXT_BYTES {
+                return Err((
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    format!(
+                        "Extracted document text exceeds the {}MB safety limit",
+                        MAX_EXTRACTED_TEXT_BYTES / (1024 * 1024)
+                    ),
+                ));
+            }
+            Ok(text)
+        },
+    )
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("PDF extraction task panicked: {}", e),
+        )
+    })??; // first ? unwraps JoinError, second unwraps the inner Result
+
     let total_words = word_count(&raw_text);
-
     if total_words < 50 {
         return Err((
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -122,7 +194,12 @@ pub async fn map_document(
         libsql::params![doc_id.clone(), file_name.clone(), total_words as i64],
     )
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Source document insert: {}", e)))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Source document insert: {}", e),
+        )
+    })?;
 
     // ── 5. Create mapping_jobs record with status = 'pending' ─────────────────
     let job_id = Uuid::new_v4().to_string();
@@ -130,25 +207,27 @@ pub async fn map_document(
     conn.execute(
         "INSERT INTO mapping_jobs (id, chapter_id, document_id, status, created_at)
          VALUES (?1, ?2, ?3, 'pending', ?4)",
-        libsql::params![
-            job_id.clone(),
-            chapter_id.clone(),
-            doc_id.clone(),
-            now
-        ],
+        libsql::params![job_id.clone(), chapter_id.clone(), doc_id.clone(), now],
     )
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Job record insert: {}", e)))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Job record insert: {}", e),
+        )
+    })?;
 
     println!(
-        "[map] job_id={} dispatched — {} words, chapter '{}' ({} words)",
-        job_id, total_words, chapter_code, total_words
+        "[map] job_id={} dispatched — {} words, chapter '{}'",
+        job_id, total_words, chapter_code
     );
 
-    // ── 6. Spawn background worker — HTTP thread returns in microseconds ───────
-    let db_bg       = db.clone();
-    let job_id_bg   = job_id.clone();
-    let doc_id_bg   = doc_id.clone();
+    // ── 6. Spawn background worker ────────────────────────────────────────────
+    // `permit` moves into the task and is held until `run_mapping_job` returns,
+    // keeping the semaphore slot occupied for the Gemini call's full duration.
+    let db_bg = db.clone();
+    let job_id_bg = job_id.clone();
+    let doc_id_bg = doc_id.clone();
 
     tokio::spawn(async move {
         run_mapping_job(
@@ -159,6 +238,7 @@ pub async fn map_document(
             chapter_code,
             raw_text,
             doc_id_bg,
+            permit,
         )
         .await;
     });
@@ -209,9 +289,9 @@ pub async fn get_job_status(
         .get(0)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // NULL columns return Err from get::<String>; treat that as None.
+    // NULL columns return Err from get::<String>; treat as None.
     let error_message: Option<String> = row.get::<String>(1).ok();
-    let analysis_id: Option<String>   = row.get::<String>(2).ok();
+    let analysis_id: Option<String> = row.get::<String>(2).ok();
 
     let result = if status == "completed" {
         match analysis_id {
@@ -245,63 +325,105 @@ async fn run_mapping_job(
     chapter_code: String,
     raw_text: String,
     doc_id: String,
+    _permit: OwnedSemaphorePermit, // held until this fn returns → slot freed on drop
 ) {
     let conn = db.get_conn();
     let http = reqwest::Client::new();
 
-    match call_gemini_map(&http, &chapter_name, &chapter_code, &raw_text).await {
-        Ok(result) => {
-            let analysis_id   = Uuid::new_v4().to_string();
-            let now           = chrono::Utc::now().to_rfc3339();
-            let coverage_score = (result.coverage_metric as f64) / 100.0;
-
-            let persist = conn
-                .execute(
-                    "INSERT INTO chapter_gap_analysis
-                         (id, chapter_id, document_id, coverage_score, coverage_metric,
-                          gap_topics_json, compliant_topics_json, recommendations_json,
-                          computational_checks_json, complex_exam_question,
-                          scoring_rubric_json, diagnostic_variants_json, analyzed_at)
-                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
-                    libsql::params![
-                        analysis_id.clone(),
-                        chapter_id.clone(),
-                        doc_id.clone(),
-                        coverage_score,
-                        result.coverage_metric,
-                        "[]",
-                        "[]",
-                        "[]",
-                        serde_json::to_string(&result.computational_checks)
-                            .unwrap_or_default(),
-                        result.complex_exam_question.clone(),
-                        serde_json::to_string(&result.scoring_rubric_json)
-                            .unwrap_or_default(),
-                        serde_json::to_string(&result.alternate_diagnostic_variants)
-                            .unwrap_or_default(),
-                        now
-                    ],
-                )
-                .await;
-
-            match persist {
-                Ok(_) => {
-                    mark_job_completed(&conn, &job_id, &analysis_id).await;
-                    println!(
-                        "[map] job_id={} completed — analysis_id={} coverage={}%",
-                        job_id, analysis_id, result.coverage_metric
-                    );
-                }
-                Err(e) => {
-                    let msg = format!("Analysis persist failed: {}", e);
-                    eprintln!("[map] job_id={} — {}", job_id, msg);
-                    mark_job_failed(&conn, &job_id, &msg).await;
-                }
+    let result: GeminiMapResult =
+        match call_gemini_map(&http, &chapter_name, &chapter_code, &raw_text).await {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("[map] job_id={} — Gemini analysis failed: {}", job_id, e);
+                mark_job_failed(&conn, &job_id, &truncate_error(&e)).await;
+                return;
             }
+        };
+
+    // ── Structural validation before touching the database ────────────────────
+    if let Err(e) = result.validate() {
+        let msg = format!("Gemini response failed structural validation: {}", e);
+        eprintln!("[map] job_id={} — {}", job_id, msg);
+        mark_job_failed(&conn, &job_id, &truncate_error(&msg)).await;
+        return;
+    }
+
+    // ── Serialize each JSON field explicitly — no silent data corruption ──────
+    let checks_json =
+        match serialize_job_field(&result.computational_checks, "computational_checks", &job_id) {
+            Ok(v) => v,
+            Err(msg) => {
+                eprintln!("{}", msg);
+                mark_job_failed(&conn, &job_id, &truncate_error(&msg)).await;
+                return;
+            }
+        };
+
+    let rubric_json =
+        match serialize_job_field(&result.scoring_rubric_json, "scoring_rubric_json", &job_id) {
+            Ok(v) => v,
+            Err(msg) => {
+                eprintln!("{}", msg);
+                mark_job_failed(&conn, &job_id, &truncate_error(&msg)).await;
+                return;
+            }
+        };
+
+    let variants_json = match serialize_job_field(
+        &result.alternate_diagnostic_variants,
+        "alternate_diagnostic_variants",
+        &job_id,
+    ) {
+        Ok(v) => v,
+        Err(msg) => {
+            eprintln!("{}", msg);
+            mark_job_failed(&conn, &job_id, &truncate_error(&msg)).await;
+            return;
+        }
+    };
+
+    let analysis_id = Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+    let coverage_score = (result.coverage_metric as f64) / 100.0;
+
+    let persist = conn
+        .execute(
+            "INSERT INTO chapter_gap_analysis
+                 (id, chapter_id, document_id, coverage_score, coverage_metric,
+                  gap_topics_json, compliant_topics_json, recommendations_json,
+                  computational_checks_json, complex_exam_question,
+                  scoring_rubric_json, diagnostic_variants_json, analyzed_at)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+            libsql::params![
+                analysis_id.clone(),
+                chapter_id.clone(),
+                doc_id.clone(),
+                coverage_score,
+                result.coverage_metric,
+                "[]",
+                "[]",
+                "[]",
+                checks_json,
+                result.complex_exam_question.clone(),
+                rubric_json,
+                variants_json,
+                now
+            ],
+        )
+        .await;
+
+    match persist {
+        Ok(_) => {
+            mark_job_completed(&conn, &job_id, &analysis_id).await;
+            println!(
+                "[map] job_id={} completed — analysis_id={} coverage={}%",
+                job_id, analysis_id, result.coverage_metric
+            );
         }
         Err(e) => {
-            eprintln!("[map] job_id={} — Gemini analysis failed: {}", job_id, e);
-            mark_job_failed(&conn, &job_id, &e).await;
+            let msg = format!("Analysis persist failed: {}", e);
+            eprintln!("[map] job_id={} — {}", job_id, msg);
+            mark_job_failed(&conn, &job_id, &truncate_error(&msg)).await;
         }
     }
 }
@@ -355,13 +477,13 @@ async fn fetch_analysis_result(
         None => return Ok(None),
     };
 
-    let id: String            = row.get(0).map_err(|e| e.to_string())?;
-    let chapter_id: String    = row.get(1).map_err(|e| e.to_string())?;
-    let document_id: String   = row.get(2).map_err(|e| e.to_string())?;
-    let coverage_metric: i64  = row.get(3).map_err(|e| e.to_string())?;
-    let checks_json: String   = row.get(4).map_err(|e| e.to_string())?;
-    let question: String      = row.get(5).map_err(|e| e.to_string())?;
-    let rubric_json: String   = row.get(6).map_err(|e| e.to_string())?;
+    let id: String = row.get(0).map_err(|e| e.to_string())?;
+    let chapter_id: String = row.get(1).map_err(|e| e.to_string())?;
+    let document_id: String = row.get(2).map_err(|e| e.to_string())?;
+    let coverage_metric: i64 = row.get(3).map_err(|e| e.to_string())?;
+    let checks_json: String = row.get(4).map_err(|e| e.to_string())?;
+    let question: String = row.get(5).map_err(|e| e.to_string())?;
+    let rubric_json: String = row.get(6).map_err(|e| e.to_string())?;
     let variants_json: String = row.get(7).map_err(|e| e.to_string())?;
 
     let computational_checks: Vec<String> =
@@ -387,21 +509,6 @@ async fn fetch_analysis_result(
 // Private helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn extract_pdf_text(file_name: &str, data: &[u8]) -> Result<String, (StatusCode, String)> {
-    if !file_name.to_lowercase().ends_with(".pdf") {
-        return Ok(String::from_utf8_lossy(data).into_owned());
-    }
-    let temp_path = format!("map_tmp_{}.pdf", Uuid::new_v4());
-    std::fs::write(&temp_path, data)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Temp file write: {}", e)))?;
-    let text = pdf_extract::extract_text(&temp_path).map_err(|e| {
-        std::fs::remove_file(&temp_path).ok();
-        (StatusCode::UNPROCESSABLE_ENTITY, format!("PDF parsing failed: {}", e))
-    })?;
-    std::fs::remove_file(&temp_path).ok();
-    Ok(text)
-}
-
 async fn resolve_chapter(
     conn: &libsql::Connection,
     chapter_id: &str,
@@ -420,8 +527,12 @@ async fn resolve_chapter(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     {
         Some(row) => {
-            let name: String = row.get(0).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-            let code: String = row.get(1).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            let name: String = row
+                .get(0)
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            let code: String = row
+                .get(1)
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
             Ok((name, code))
         }
         None => Err((
@@ -429,4 +540,35 @@ async fn resolve_chapter(
             format!("Chapter '{}' not found", chapter_id),
         )),
     }
+}
+
+/// Serializes `value` to a JSON string, returning a descriptive error on failure
+/// so that serialization bugs surface as explicit job failures rather than
+/// silent empty-string corruption.
+fn serialize_job_field<T: serde::Serialize>(
+    value: &T,
+    field_name: &str,
+    job_id: &str,
+) -> Result<String, String> {
+    serde_json::to_string(value).map_err(|e| {
+        format!(
+            "[map] job_id={} — serialization failed for field '{}': {}",
+            job_id, field_name, e
+        )
+    })
+}
+
+/// Caps persisted error messages to 4,000 bytes so that very long Gemini error
+/// bodies do not exceed the `mapping_jobs.error_message` column budget.
+/// Truncates at the nearest valid UTF-8 char boundary below the limit.
+fn truncate_error(msg: &str) -> String {
+    const MAX_BYTES: usize = 4_000;
+    if msg.len() <= MAX_BYTES {
+        return msg.to_string();
+    }
+    let mut boundary = MAX_BYTES;
+    while boundary > 0 && !msg.is_char_boundary(boundary) {
+        boundary -= 1;
+    }
+    format!("{}…[truncated]", &msg[..boundary])
 }

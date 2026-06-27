@@ -1,5 +1,10 @@
-use axum::{extract::DefaultBodyLimit, routing::{get, post}, Router};
-use std::net::SocketAddr;
+use axum::{
+    extract::{DefaultBodyLimit, FromRef},
+    routing::{get, post},
+    Router,
+};
+use std::{net::SocketAddr, sync::Arc};
+use tokio::sync::Semaphore;
 use tower_http::cors::{Any, CorsLayer};
 
 mod db;
@@ -14,6 +19,30 @@ mod routes {
 }
 pub mod utils;
 
+/// Shared application state threaded through every Axum handler.
+/// All routes that only need the database still declare `State<DbHelper>` —
+/// Axum resolves that via the `FromRef` impl below without any code changes
+/// to auth / nexus / ranking routes.
+#[derive(Clone)]
+pub struct AppState {
+    pub db: db::DbHelper,
+    /// Limits concurrent Gemini mapping jobs to prevent Railway 60-s timeouts
+    /// from cascading into an unbounded queue of long-running tasks.
+    pub semaphore: Arc<Semaphore>,
+}
+
+impl FromRef<AppState> for db::DbHelper {
+    fn from_ref(state: &AppState) -> db::DbHelper {
+        state.db.clone()
+    }
+}
+
+impl FromRef<AppState> for Arc<Semaphore> {
+    fn from_ref(state: &AppState) -> Arc<Semaphore> {
+        state.semaphore.clone()
+    }
+}
+
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().ok();
@@ -23,23 +52,43 @@ async fn main() {
         .allow_methods(Any)
         .allow_headers(Any);
 
-    let db_helper = db::DbHelper::init().await;
+    let app_state = AppState {
+        db: db::DbHelper::init().await,
+        semaphore: Arc::new(Semaphore::new(3)),
+    };
 
     let app = Router::new()
         .route("/api/hello", get(|| async { "Hello from Rust Backend!" }))
-        .route("/api/db-check", get(|axum::extract::State(db_helper): axum::extract::State<db::DbHelper>| async move {
-            (axum::http::StatusCode::OK, db_helper.connection_status.clone())
-        }))
+        .route(
+            "/api/db-check",
+            get(
+                |axum::extract::State(db): axum::extract::State<db::DbHelper>| async move {
+                    (axum::http::StatusCode::OK, db.connection_status.clone())
+                },
+            ),
+        )
         .route("/api/nexus/coverage", get(routes::nexus::get_coverage))
-        .route("/api/nexus/upload", axum::routing::post(routes::nexus::upload_document))
-        .route("/api/nexus/chapters/{chapter_id}/questions", get(routes::nexus::get_chapter_questions))
-        .route("/api/ranking/tournaments/{tournament_id}/process", post(routes::ranking::process_tournament))
+        .route(
+            "/api/nexus/upload",
+            axum::routing::post(routes::nexus::upload_document),
+        )
+        .route(
+            "/api/nexus/chapters/{chapter_id}/questions",
+            get(routes::nexus::get_chapter_questions),
+        )
+        .route(
+            "/api/ranking/tournaments/{tournament_id}/process",
+            post(routes::ranking::process_tournament),
+        )
         .route("/api/ranking/leaderboard", get(routes::ranking::get_leaderboard))
         .route("/api/auth/register", post(routes::auth::register))
         .route("/api/auth/login", post(routes::auth::login))
         .route("/api/map-document", post(routes::map::map_document))
-        .route("/api/map-document/jobs/{job_id}", get(routes::map::get_job_status))
-        .with_state(db_helper)
+        .route(
+            "/api/map-document/jobs/{job_id}",
+            get(routes::map::get_job_status),
+        )
+        .with_state(app_state)
         .layer(DefaultBodyLimit::max(35 * 1024 * 1024))
         .layer(cors);
 

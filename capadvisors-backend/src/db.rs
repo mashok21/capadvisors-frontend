@@ -2,6 +2,27 @@ use libsql::{Builder, Connection, Database};
 use std::env;
 use std::sync::Arc;
 
+/// Returns `true` when `column` is already present in `table`, using
+/// `PRAGMA table_info` rather than brittle error-string matching.
+async fn column_exists(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+) -> Result<bool, libsql::Error> {
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA table_info({})", table))
+        .await?;
+    let mut rows = stmt.query(()).await?;
+    // PRAGMA table_info columns: cid(0) | name(1) | type(2) | notnull(3) | dflt_value(4) | pk(5)
+    while let Some(row) = rows.next().await? {
+        let col_name: String = row.get(1)?;
+        if col_name == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 #[derive(Clone)]
 pub struct DbHelper {
     db: Arc<Database>,
@@ -235,9 +256,8 @@ impl DbHelper {
         .await?;
 
         // Schema evolution: add Gemini map-analysis columns to chapter_gap_analysis.
-        // Each ALTER TABLE errors only if the column already exists ("duplicate column
-        // name"). That specific case is silently skipped so restarts are idempotent.
-        // Any other error (permissions, storage, syntax) is propagated as a hard failure.
+        // Uses PRAGMA table_info to check existence before issuing ALTER TABLE so that
+        // restarts are idempotent without relying on fragile error-message strings.
         for (col_name, col_def) in [
             ("coverage_metric",           "INTEGER NOT NULL DEFAULT 0"),
             ("computational_checks_json", "TEXT    NOT NULL DEFAULT '[]'"),
@@ -245,17 +265,15 @@ impl DbHelper {
             ("scoring_rubric_json",       "TEXT    NOT NULL DEFAULT '{}'"),
             ("diagnostic_variants_json",  "TEXT    NOT NULL DEFAULT '[]'"),
         ] {
+            if column_exists(&conn, "chapter_gap_analysis", col_name).await? {
+                continue; // Already present — restart-safe skip.
+            }
             let sql = format!(
                 "ALTER TABLE chapter_gap_analysis ADD COLUMN {} {};",
                 col_name, col_def
             );
-            match conn.execute(&sql, ()).await {
-                Ok(_) => println!("[schema] Migration: added column '{}'", col_name),
-                Err(e) if e.to_string().contains("duplicate column name") => {
-                    // Column already exists from a prior server start — expected.
-                }
-                Err(e) => return Err(e), // Genuine failure: surface it.
-            }
+            conn.execute(&sql, ()).await?;
+            println!("[schema] Migration: added column '{}'", col_name);
         }
 
         // Create Rating History Table
