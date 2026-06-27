@@ -10,7 +10,11 @@ use uuid::Uuid;
 use crate::{
     db::DbHelper,
     middleware::auth::RequireAdmin,
-    utils::{gemini_improvise::improvise_question, gemini_map::GeminiMapResult},
+    utils::{
+        gemini_improvise::improvise_question,
+        gemini_map::{GeminiMapResult, ScoringRubric},
+        gemini_refine_answer::refine_question_answer,
+    },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -352,8 +356,98 @@ pub async fn improvise_staging(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// POST /api/admin/questions/staging/:id/refine-answer
+// Surgically refines only the scoring_rubric_json of a pending staged question.
+// The question narrative and diagnostic variants are never touched — Gemini
+// receives the rubric-only schema, which also cuts output tokens roughly in half
+// compared to a full improvise pass.
+// Temperature 0.1 (vs 0.2 for improvise) prioritises mathematical precision
+// over stylistic creativity — critical for mark-allocation accuracy.
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct RefineAnswerRequest {
+    pub admin_guidance: Option<String>,
+}
+
+pub async fn refine_answer_staging(
+    RequireAdmin(_): RequireAdmin,
+    State(db): State<DbHelper>,
+    Path(id): Path<String>,
+    Json(payload): Json<RefineAnswerRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let conn = db.get_conn();
+
+    let staging = fetch_staging_item(&conn, &id).await?;
+    if staging.status != "pending_review" {
+        return Err((
+            StatusCode::CONFLICT,
+            format!(
+                "Staging item '{}' is '{}'; only pending_review items can be refined",
+                id, staging.status
+            ),
+        ));
+    }
+
+    let client = reqwest::Client::new();
+    let refined = refine_question_answer(
+        &client,
+        &staging.question_text,
+        &staging.scoring_rubric_json,
+        payload.admin_guidance.as_deref(),
+    )
+    .await
+    .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Gemini refine-answer failed: {}", e)))?;
+
+    validate_rubric(&refined)
+        .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, format!("Rubric validation failed: {}", e)))?;
+
+    let new_rubric_json = serde_json::to_string(&refined).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Rubric serialization failed: {}", e),
+        )
+    })?;
+
+    conn.execute(
+        "UPDATE question_staging_queue
+         SET    scoring_rubric_json = ?1
+         WHERE  id = ?2",
+        libsql::params![new_rubric_json, id.clone()],
+    )
+    .await
+    .map_err(libsql_err)?;
+
+    let updated = fetch_staging_item(&conn, &id).await?;
+    Ok(Json(updated))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Private helpers
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// Validates the structural integrity of a `ScoringRubric` returned by the
+/// refine-answer pass before it is persisted.
+///
+/// Mirrors the rubric-specific logic from `GeminiMapResult::validate()` but
+/// operates on a standalone `ScoringRubric` without requiring a full wrapper.
+fn validate_rubric(rubric: &ScoringRubric) -> Result<(), String> {
+    if rubric.steps.is_empty() {
+        return Err("Refined rubric must contain at least one step".to_string());
+    }
+    let computed_sum: f64 = rubric.steps.iter().map(|s| s.marks).sum();
+    let expected = rubric.total_marks as f64;
+    if (computed_sum - expected).abs() > 0.5 {
+        return Err(format!(
+            "Rubric step marks sum to {:.2} but total_marks is {} \
+             (delta {:.2} exceeds 0.5-mark tolerance)",
+            computed_sum,
+            rubric.total_marks,
+            (computed_sum - expected).abs()
+        ));
+    }
+    Ok(())
+}
 
 async fn fetch_staging_item(
     conn: &libsql::Connection,

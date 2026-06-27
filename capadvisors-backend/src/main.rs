@@ -98,6 +98,10 @@ async fn main() {
             post(routes::quiz::improvise_staging),
         )
         .route(
+            "/api/admin/questions/staging/{id}/refine-answer",
+            post(routes::quiz::refine_answer_staging),
+        )
+        .route(
             "/api/admin/questions/staging/{id}/reject",
             delete(routes::quiz::reject_staging),
         )
