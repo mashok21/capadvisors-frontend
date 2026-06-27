@@ -1,4 +1,4 @@
-use axum::{routing::{get, post}, Router};
+use axum::{extract::DefaultBodyLimit, routing::{get, post}, Router};
 use std::net::SocketAddr;
 use tower_http::cors::{Any, CorsLayer};
 
@@ -38,7 +38,9 @@ async fn main() {
         .route("/api/auth/register", post(routes::auth::register))
         .route("/api/auth/login", post(routes::auth::login))
         .route("/api/map-document", post(routes::map::map_document))
+        .route("/api/map-document/jobs/{job_id}", get(routes::map::get_job_status))
         .with_state(db_helper)
+        .layer(DefaultBodyLimit::max(35 * 1024 * 1024))
         .layer(cors);
 
     let port = std::env::var("PORT")

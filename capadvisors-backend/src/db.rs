@@ -218,17 +218,44 @@ impl DbHelper {
         )
         .await?;
 
+        // Job queue for the async 202 map-document pipeline.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS mapping_jobs (
+                id            TEXT PRIMARY KEY,
+                chapter_id    TEXT NOT NULL,
+                document_id   TEXT NOT NULL,
+                status        TEXT NOT NULL DEFAULT 'pending'
+                              CHECK(status IN ('pending', 'completed', 'failed')),
+                analysis_id   TEXT,
+                error_message TEXT,
+                created_at    TEXT NOT NULL
+            );",
+            (),
+        )
+        .await?;
+
         // Schema evolution: add Gemini map-analysis columns to chapter_gap_analysis.
-        // ALTER TABLE ADD COLUMN errors only when the column already exists, so
-        // `.ok()` makes each migration idempotent across server restarts.
-        for col_sql in [
-            "ALTER TABLE chapter_gap_analysis ADD COLUMN coverage_metric            INTEGER NOT NULL DEFAULT 0",
-            "ALTER TABLE chapter_gap_analysis ADD COLUMN computational_checks_json  TEXT    NOT NULL DEFAULT '[]'",
-            "ALTER TABLE chapter_gap_analysis ADD COLUMN complex_exam_question      TEXT    NOT NULL DEFAULT ''",
-            "ALTER TABLE chapter_gap_analysis ADD COLUMN scoring_rubric_json        TEXT    NOT NULL DEFAULT '{}'",
-            "ALTER TABLE chapter_gap_analysis ADD COLUMN diagnostic_variants_json   TEXT    NOT NULL DEFAULT '[]'",
+        // Each ALTER TABLE errors only if the column already exists ("duplicate column
+        // name"). That specific case is silently skipped so restarts are idempotent.
+        // Any other error (permissions, storage, syntax) is propagated as a hard failure.
+        for (col_name, col_def) in [
+            ("coverage_metric",           "INTEGER NOT NULL DEFAULT 0"),
+            ("computational_checks_json", "TEXT    NOT NULL DEFAULT '[]'"),
+            ("complex_exam_question",     "TEXT    NOT NULL DEFAULT ''"),
+            ("scoring_rubric_json",       "TEXT    NOT NULL DEFAULT '{}'"),
+            ("diagnostic_variants_json",  "TEXT    NOT NULL DEFAULT '[]'"),
         ] {
-            conn.execute(col_sql, ()).await.ok();
+            let sql = format!(
+                "ALTER TABLE chapter_gap_analysis ADD COLUMN {} {};",
+                col_name, col_def
+            );
+            match conn.execute(&sql, ()).await {
+                Ok(_) => println!("[schema] Migration: added column '{}'", col_name),
+                Err(e) if e.to_string().contains("duplicate column name") => {
+                    // Column already exists from a prior server start — expected.
+                }
+                Err(e) => return Err(e), // Genuine failure: surface it.
+            }
         }
 
         // Create Rating History Table

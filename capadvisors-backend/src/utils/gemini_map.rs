@@ -5,6 +5,12 @@ use serde::{Deserialize, Serialize};
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Top-level structured response from the Gemini 2.5 Pro map-analysis pass.
+///
+/// `deny_unknown_fields` is intentionally omitted here: if Gemini ever emits
+/// a minor extra key at the top level (e.g. a metadata field), the response
+/// should still deserialise cleanly rather than hard-failing. Unknown fields
+/// on the tightly-constrained inner types (ScoringRubric, DiagnosticVariant)
+/// ARE rejected — see their own derive annotations.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GeminiMapResult {
     /// Integer 0–100 representing compliance depth relative to chapter syllabus.
@@ -24,12 +30,14 @@ pub struct GeminiMapResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ScoringRubric {
     pub total_marks: i64,
     pub steps: Vec<RubricStep>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RubricStep {
     pub step: i64,
     pub description: String,
@@ -38,6 +46,7 @@ pub struct RubricStep {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DiagnosticVariant {
     /// 1, 2, or 3.
     pub variant_number: i64,
