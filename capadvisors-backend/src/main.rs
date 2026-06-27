@@ -92,6 +92,10 @@ async fn main() {
             post(routes::quiz::approve_staging),
         )
         .route(
+            "/api/admin/questions/staging/{id}/improvise",
+            post(routes::quiz::improvise_staging),
+        )
+        .route(
             "/api/admin/questions/staging/{id}/reject",
             delete(routes::quiz::reject_staging),
         )

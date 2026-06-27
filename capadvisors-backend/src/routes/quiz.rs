@@ -7,7 +7,11 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{db::DbHelper, middleware::auth::RequireAdmin};
+use crate::{
+    db::DbHelper,
+    middleware::auth::RequireAdmin,
+    utils::{gemini_improvise::improvise_question, gemini_map::GeminiMapResult},
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Response types
@@ -276,6 +280,69 @@ pub async fn delete_from_databank(
     }
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/admin/questions/staging/:id/improvise
+// Passes the existing staged question back to Gemini at low temperature (0.2)
+// for rapid polish and directed refinement — no document re-parsing required.
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct ImproviseRequest {
+    pub admin_guidance: Option<String>,
+}
+
+pub async fn improvise_staging(
+    RequireAdmin(_): RequireAdmin,
+    State(db): State<DbHelper>,
+    Path(id): Path<String>,
+    Json(payload): Json<ImproviseRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let conn = db.get_conn();
+
+    let staging = fetch_staging_item(&conn, &id).await?;
+    if staging.status != "pending_review" {
+        return Err((
+            StatusCode::CONFLICT,
+            format!("Staging item '{}' is '{}'; only pending_review items can be improvised", id, staging.status),
+        ));
+    }
+
+    let client = reqwest::Client::new();
+    let result: GeminiMapResult = improvise_question(
+        &client,
+        &staging.question_text,
+        &staging.scoring_rubric_json,
+        &staging.alternate_variants_json,
+        payload.admin_guidance.as_deref(),
+    )
+    .await
+    .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Gemini improvise failed: {}", e)))?;
+
+    result
+        .validate()
+        .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, format!("Validation failed: {}", e)))?;
+
+    let new_question = result.complex_exam_question.clone();
+    let new_rubric = serde_json::to_string(&result.scoring_rubric_json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Rubric serialization failed: {}", e)))?;
+    let new_variants = serde_json::to_string(&result.alternate_diagnostic_variants)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Variants serialization failed: {}", e)))?;
+
+    conn.execute(
+        "UPDATE question_staging_queue
+         SET    question_text           = ?1,
+                scoring_rubric_json     = ?2,
+                alternate_variants_json = ?3
+         WHERE  id = ?4",
+        libsql::params![new_question, new_rubric, new_variants, id.clone()],
+    )
+    .await
+    .map_err(libsql_err)?;
+
+    let updated = fetch_staging_item(&conn, &id).await?;
+    Ok(Json(updated))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

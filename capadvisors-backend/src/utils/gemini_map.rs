@@ -201,7 +201,7 @@ fn build_prompt(chapter_code: &str, chapter_name: &str, raw_text: &str) -> Strin
     )
 }
 
-fn build_response_schema() -> serde_json::Value {
+pub(crate) fn build_response_schema() -> serde_json::Value {
     serde_json::json!({
         "type": "OBJECT",
         "properties": {
