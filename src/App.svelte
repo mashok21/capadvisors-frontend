@@ -596,6 +596,13 @@
           🧹 Reset Demo DB
         </button>
       {/if}
+      <button
+        class="action-btn logout-btn"
+        onclick={() => auth.logout()}
+        title="Sign Out"
+      >
+        ⏻ Sign Out
+      </button>
     </div>
   </div>
 
