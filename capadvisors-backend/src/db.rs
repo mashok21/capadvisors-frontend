@@ -310,6 +310,41 @@ impl DbHelper {
         )
         .await?;
 
+        // Live question pool — questions graduate here after admin approval.
+        // Glicko-2 fields track per-question difficulty via student interaction.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS quiz_databank (
+                id                      TEXT PRIMARY KEY,
+                chapter_id              TEXT,
+                question_text           TEXT NOT NULL,
+                scoring_rubric_json     TEXT NOT NULL DEFAULT '{}',
+                alternate_variants_json TEXT NOT NULL DEFAULT '[]',
+                rating                  REAL NOT NULL DEFAULT 1500.0,
+                rating_deviation        REAL NOT NULL DEFAULT 350.0,
+                volatility              REAL NOT NULL DEFAULT 0.06,
+                created_at              DATETIME DEFAULT CURRENT_TIMESTAMP
+            );",
+            (),
+        )
+        .await?;
+
+        // Staging queue — raw questions from the mapping pipeline await admin
+        // review before promotion into quiz_databank.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS question_staging_queue (
+                id                      TEXT PRIMARY KEY,
+                chapter_id              TEXT,
+                question_text           TEXT NOT NULL,
+                scoring_rubric_json     TEXT NOT NULL DEFAULT '{}',
+                alternate_variants_json TEXT NOT NULL DEFAULT '[]',
+                status                  TEXT NOT NULL DEFAULT 'pending_review'
+                                        CHECK(status IN ('pending_review', 'approved', 'rejected')),
+                created_at              DATETIME DEFAULT CURRENT_TIMESTAMP
+            );",
+            (),
+        )
+        .await?;
+
         // Seed Chapters
         self.seed_chapters(&conn).await?;
         Ok(())

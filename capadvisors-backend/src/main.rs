@@ -1,6 +1,6 @@
 use axum::{
     extract::{DefaultBodyLimit, FromRef},
-    routing::{get, post},
+    routing::{delete, get, post, put},
     Router,
 };
 use std::{net::SocketAddr, sync::Arc};
@@ -15,6 +15,7 @@ mod routes {
     pub mod auth;
     pub mod map;
     pub mod nexus;
+    pub mod quiz;
     pub mod ranking;
 }
 pub mod utils;
@@ -84,6 +85,20 @@ async fn main() {
         .route("/api/auth/register", post(routes::auth::register))
         .route("/api/auth/login", post(routes::auth::login))
         .route("/api/auth/admin/create", post(routes::auth::create_admin))
+        .route("/api/admin/questions/staging", get(routes::quiz::list_staging))
+        .route("/api/admin/questions/staging/{id}", put(routes::quiz::edit_staging))
+        .route(
+            "/api/admin/questions/staging/{id}/approve",
+            post(routes::quiz::approve_staging),
+        )
+        .route(
+            "/api/admin/questions/staging/{id}/reject",
+            delete(routes::quiz::reject_staging),
+        )
+        .route(
+            "/api/admin/questions/databank/{id}",
+            delete(routes::quiz::delete_from_databank),
+        )
         .route("/api/map-document", post(routes::map::map_document))
         .route(
             "/api/map-document/jobs/{job_id}",
