@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { auth } from './lib/auth.svelte.js';
+  import Leaderboard from './lib/components/Leaderboard.svelte';
 
   const baseApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -433,6 +434,9 @@
     checkBackendStatus();
   });
 
+  // Active view
+  let activeView = $state('nexus'); // 'nexus' | 'leaderboard'
+
   // Auth form state
   let authEmail = $state('');
   let authPassword = $state('');
@@ -573,6 +577,18 @@
     </div>
 
     <div class="banner-actions">
+      <!-- View tabs -->
+      <div class="view-tabs">
+        <button
+          class="view-tab {activeView === 'nexus' ? 'active' : ''}"
+          onclick={() => activeView = 'nexus'}
+        >📊 Nexus</button>
+        <button
+          class="view-tab {activeView === 'leaderboard' ? 'active' : ''}"
+          onclick={() => activeView = 'leaderboard'}
+        >🏆 Rankings</button>
+      </div>
+
       <button
         id="btn-refresh"
         class="action-btn icon-btn"
@@ -626,8 +642,15 @@
     </div>
   </section>
 
+  <!-- Main content: swap between Nexus and Leaderboard -->
+  {#if activeView === 'leaderboard'}
+    <div class="leaderboard-panel">
+      <Leaderboard {baseApiUrl} />
+    </div>
+  {/if}
+
   <!-- Main Grid Layout -->
-  <div class="dashboard-grid">
+  <div class="dashboard-grid" class:hidden={activeView !== 'nexus'}>
     <!-- Left Column: Coverage List -->
     <main class="dashboard-section main-coverage" id="status-dashboard">
       <div class="section-header">

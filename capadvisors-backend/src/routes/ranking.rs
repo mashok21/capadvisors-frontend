@@ -64,6 +64,7 @@ pub struct LeaderboardEntry {
     pub games_played: i64,
     pub national_rank: i64,
     pub percentile: f64,
+    pub rank_tier: String,
 }
 
 #[derive(Debug, Clone)]
@@ -378,15 +379,17 @@ async fn get_leaderboard_inner(db: DbHelper) -> Result<Vec<LeaderboardEntry>, St
             ((total_students - national_rank + 1) as f64 / total_students as f64) * 100.0
         };
 
+        let rating: f64 = row.get(2).map_err(|e| e.to_string())?;
         entries.push(LeaderboardEntry {
             student_id: row.get(0).map_err(|e| e.to_string())?,
             display_name: row.get(1).map_err(|e| e.to_string())?,
-            rating: row.get(2).map_err(|e| e.to_string())?,
+            rating,
             rating_deviation: row.get(3).map_err(|e| e.to_string())?,
             volatility: row.get(4).map_err(|e| e.to_string())?,
             games_played: row.get(5).map_err(|e| e.to_string())?,
             national_rank,
             percentile,
+            rank_tier: rank_tier_from_rating(rating),
         });
     }
 
@@ -400,6 +403,16 @@ async fn count_rated_students(conn: &Connection) -> Result<i64, libsql::Error> {
         return Ok(0);
     };
     row.get(0)
+}
+
+fn rank_tier_from_rating(rating: f64) -> String {
+    match rating {
+        r if r >= 2000.0 => "Strategic Master",
+        r if r >= 1700.0 => "Advanced Analyst",
+        r if r >= 1400.0 => "Senior Candidate",
+        _ => "Novice Practitioner",
+    }
+    .to_string()
 }
 
 fn internal_error(error: libsql::Error) -> (StatusCode, String) {

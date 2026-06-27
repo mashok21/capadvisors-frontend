@@ -1666,3 +1666,47 @@ body {
   transform: translateY(-1px);
 }
 
+/* ── View nav tabs ────────────────────────────────────────────────────────── */
+.view-tabs {
+  display: flex;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 3px;
+}
+
+.view-tab {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.45);
+  border-radius: 7px;
+  padding: 6px 14px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.view-tab:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.view-tab.active {
+  background: rgba(255, 255, 255, 0.09);
+  color: #fff;
+}
+
+/* ── Leaderboard panel ────────────────────────────────────────────────────── */
+.leaderboard-panel {
+  max-width: 1200px;
+  margin: 0 auto 32px;
+  padding: 0 24px;
+}
+
+.dashboard-grid.hidden {
+  display: none;
+}
+

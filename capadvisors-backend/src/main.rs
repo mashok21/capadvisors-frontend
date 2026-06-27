@@ -82,6 +82,7 @@ async fn main() {
             post(routes::ranking::process_tournament),
         )
         .route("/api/ranking/leaderboard", get(routes::ranking::get_leaderboard))
+        .route("/api/leaderboard", get(routes::ranking::get_leaderboard))
         .route("/api/auth/register", post(routes::auth::register))
         .route("/api/auth/login", post(routes::auth::login))
         .route("/api/auth/admin/create", post(routes::auth::create_admin))
