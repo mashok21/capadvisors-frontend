@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { auth } from './lib/auth.svelte.js';
+  import EditProfile from './lib/components/EditProfile.svelte';
   import Leaderboard from './lib/components/Leaderboard.svelte';
 
   const baseApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
@@ -587,6 +588,10 @@
           class="view-tab {activeView === 'leaderboard' ? 'active' : ''}"
           onclick={() => activeView = 'leaderboard'}
         >🏆 Rankings</button>
+        <button
+          class="view-tab {activeView === 'profile' ? 'active' : ''}"
+          onclick={() => activeView = 'profile'}
+        >👤 Profile</button>
       </div>
 
       <button
@@ -646,6 +651,12 @@
   {#if activeView === 'leaderboard'}
     <div class="leaderboard-panel">
       <Leaderboard {baseApiUrl} />
+    </div>
+  {/if}
+
+  {#if activeView === 'profile'}
+    <div class="profile-panel">
+      <EditProfile {baseApiUrl} />
     </div>
   {/if}
 

@@ -31,7 +31,7 @@ pub struct DbHelper {
 
 impl DbHelper {
     pub async fn init() -> Self {
-        let mut connection_status = "Initialized".to_string();
+        let connection_status: String;
         let turso_url = env::var("TURSO_DATABASE_URL").ok();
         let turso_token = env::var("TURSO_AUTH_TOKEN").ok();
 
@@ -449,6 +449,30 @@ impl DbHelper {
         conn.execute(
             "CREATE INDEX IF NOT EXISTS quiz_submissions_student_idx
              ON quiz_submissions (student_id, submitted_at);",
+            (),
+        )
+        .await?;
+
+        // Professional profile for CA students — one row per user, upserted on edit.
+        // CHECK constraints mirror the frontend dropdown options so the DB enforces
+        // the same enum values even if the Rust validation layer is bypassed.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS student_profiles (
+                user_id          TEXT PRIMARY KEY,
+                avatar_url       TEXT NOT NULL DEFAULT '',
+                articleship_firm TEXT NOT NULL DEFAULT 'None / Other'
+                                 CHECK(articleship_firm IN (
+                                     'Deloitte', 'KPMG', 'EY', 'PwC',
+                                     'Top-20 Mid-Firm', 'Individual Practice', 'None / Other'
+                                 )),
+                articleship_year TEXT NOT NULL DEFAULT '1st Year'
+                                 CHECK(articleship_year IN (
+                                     '1st Year', '2nd Year', 'Completed', 'Direct Entry'
+                                 )),
+                firm_location    TEXT NOT NULL DEFAULT '',
+                updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );",
             (),
         )
         .await?;

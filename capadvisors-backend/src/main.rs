@@ -1,11 +1,12 @@
 use axum::{
     extract::{DefaultBodyLimit, FromRef},
+    http::HeaderValue,
     routing::{delete, get, post, put},
     Router,
 };
 use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::Semaphore;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 
 mod db;
 mod middleware {
@@ -15,9 +16,11 @@ mod routes {
     pub mod auth;
     pub mod map;
     pub mod nexus;
+    pub mod profile;
     pub mod quiz;
     pub mod quiz_submit;
     pub mod ranking;
+    pub mod upload;
 }
 pub mod utils;
 
@@ -50,7 +53,12 @@ async fn main() {
     dotenvy::dotenv().ok();
 
     let cors = CorsLayer::new()
-        .allow_origin(Any)
+        .allow_origin(AllowOrigin::list([
+            HeaderValue::from_static("https://capadvisors.in"),
+            HeaderValue::from_static("https://www.capadvisors.in"),
+            HeaderValue::from_static("http://localhost:5173"),
+            HeaderValue::from_static("http://127.0.0.1:5173"),
+        ]))
         .allow_methods(Any)
         .allow_headers(Any);
 
@@ -72,7 +80,8 @@ async fn main() {
         .route("/api/nexus/coverage", get(routes::nexus::get_coverage))
         .route(
             "/api/nexus/upload",
-            axum::routing::post(routes::nexus::upload_document),
+            axum::routing::post(routes::nexus::upload_document)
+                .layer(DefaultBodyLimit::max(35 * 1024 * 1024)),
         )
         .route(
             "/api/nexus/chapters/{chapter_id}/questions",
@@ -117,13 +126,25 @@ async fn main() {
             "/api/users/{student_id}/activity",
             get(routes::ranking::get_user_activity),
         )
-        .route("/api/map-document", post(routes::map::map_document))
+        .route(
+            "/api/user/profile",
+            get(routes::profile::get_profile).put(routes::profile::update_profile),
+        )
+        .route(
+            "/api/user/avatar/upload",
+            post(routes::upload::upload_avatar)
+                .layer(DefaultBodyLimit::max(3 * 1024 * 1024)),
+        )
+        .route(
+            "/api/map-document",
+            post(routes::map::map_document).layer(DefaultBodyLimit::max(35 * 1024 * 1024)),
+        )
         .route(
             "/api/map-document/jobs/{job_id}",
             get(routes::map::get_job_status),
         )
         .with_state(app_state)
-        .layer(DefaultBodyLimit::max(35 * 1024 * 1024))
+        .layer(DefaultBodyLimit::max(1024 * 1024))
         .layer(cors);
 
     let port = std::env::var("PORT")
