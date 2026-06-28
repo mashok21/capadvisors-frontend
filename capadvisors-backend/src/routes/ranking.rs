@@ -68,8 +68,10 @@ pub struct LeaderboardEntry {
     pub accuracy_correct: i64,
     pub accuracy_total: i64,
     pub focus_badges: Vec<String>,
-    pub articleship_firm: String,
+    /// Sourced from student_profiles via LEFT JOIN — empty string when no profile row exists.
     pub avatar_url: String,
+    /// Sourced from student_profiles via LEFT JOIN — empty string when no profile row exists.
+    pub articleship_firm: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -395,7 +397,8 @@ async fn get_leaderboard_inner(db: DbHelper) -> Result<Vec<LeaderboardEntry>, St
         return Ok(Vec::new());
     }
 
-    // Use explicit SQL relational join as per architectural mandate
+    // LEFT JOIN student_profiles keeps avatar_url and articleship_firm in their
+    // normalised home table — student_ratings is never extended with profile columns.
     let mut stmt = conn
         .prepare(
             "SELECT
@@ -405,9 +408,20 @@ async fn get_leaderboard_inner(db: DbHelper) -> Result<Vec<LeaderboardEntry>, St
                 sr.rating_deviation,
                 sr.volatility,
                 sr.games_played,
-                COALESCE(sp.articleship_firm, 'None / Other') as articleship_firm,
-                COALESCE(sp.avatar_url, '') as avatar_url
-             FROM student_ratings sr
+                sr.national_rank,
+                COALESCE(sp.avatar_url,       '')            AS avatar_url,
+                COALESCE(sp.articleship_firm, '')            AS articleship_firm
+             FROM (
+                SELECT
+                    student_id,
+                    display_name,
+                    rating,
+                    rating_deviation,
+                    volatility,
+                    games_played,
+                    RANK() OVER (ORDER BY rating DESC) AS national_rank
+                FROM student_ratings
+             ) sr
              LEFT JOIN student_profiles sp ON sp.user_id = sr.student_id
              ORDER BY sr.rating DESC, sr.rating_deviation ASC, sr.student_id ASC
              LIMIT 100",
@@ -417,35 +431,32 @@ async fn get_leaderboard_inner(db: DbHelper) -> Result<Vec<LeaderboardEntry>, St
     let mut rows = stmt.query(()).await.map_err(|e| e.to_string())?;
 
     let mut entries = Vec::new();
-    let mut rank = 1;
     while let Some(row) = rows.next().await.map_err(|e| e.to_string())? {
         let rating: f64 = row.get(2).map_err(|e| e.to_string())?;
-        let articleship_firm: String = row.get(6).unwrap_or_else(|_| "None / Other".to_string());
-        let avatar_url: String = row.get(7).unwrap_or_default();
+        let national_rank: i64 = row.get(6).map_err(|e| e.to_string())?;
 
         let percentile = if total_students == 1 {
             100.0
         } else {
-            ((total_students - rank + 1) as f64 / total_students as f64) * 100.0
+            ((total_students - national_rank + 1) as f64 / total_students as f64) * 100.0
         };
 
         entries.push(LeaderboardEntry {
-            student_id: row.get(0).map_err(|e| e.to_string())?,
-            display_name: row.get(1).map_err(|e| e.to_string())?,
+            student_id:       row.get(0).map_err(|e| e.to_string())?,
+            display_name:     row.get(1).map_err(|e| e.to_string())?,
             rating,
             rating_deviation: row.get(3).map_err(|e| e.to_string())?,
-            volatility: row.get(4).map_err(|e| e.to_string())?,
-            games_played: row.get(5).map_err(|e| e.to_string())?,
-            national_rank: rank,
+            volatility:       row.get(4).map_err(|e| e.to_string())?,
+            games_played:     row.get(5).map_err(|e| e.to_string())?,
+            national_rank,
             percentile,
-            rank_tier: rank_tier_from_rating(rating),
+            rank_tier:        rank_tier_from_rating(rating),
             accuracy_correct: 0,
-            accuracy_total: 0,
-            focus_badges: Vec::new(),
-            articleship_firm,
-            avatar_url,
+            accuracy_total:   0,
+            focus_badges:     Vec::new(),
+            avatar_url:       row.get::<String>(7).unwrap_or_default(),
+            articleship_firm: row.get::<String>(8).unwrap_or_default(),
         });
-        rank += 1;
     }
 
     // Enrich entries with accuracy stats and focus badges from quiz_activity.

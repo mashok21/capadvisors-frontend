@@ -188,7 +188,7 @@ pub async fn login(
         let name: String = row.get(1).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         let db_email: String = row.get(2).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         let hash_str: String = row.get(3).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        let role: String = row.get(4).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let mut role: String = row.get(4).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
         let parsed_hash = PasswordHash::new(&hash_str)
             .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Invalid stored credential".to_string()))?;
@@ -197,6 +197,12 @@ pub async fn login(
             .verify_password(payload.password.as_bytes(), &parsed_hash)
             .is_ok()
         {
+            if let Ok(bootstrap_email) = std::env::var("BOOTSTRAP_SUPER_ADMIN") {
+                if db_email == bootstrap_email.trim().to_lowercase() {
+                    role = "super_admin".to_string();
+                }
+            }
+
             let token = sign_jwt(&id, &db_email, &role)?;
             return Ok(Json(AuthResponse {
                 token,
@@ -225,7 +231,7 @@ fn hash_password(password: &str) -> Result<String, (StatusCode, String)> {
 
 fn sign_jwt(id: &str, email: &str, role: &str) -> Result<String, (StatusCode, String)> {
     let secret = std::env::var("JWT_SECRET")
-        .unwrap_or_else(|_| "super_secret_key_change_me".to_string());
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "JWT_SECRET is not configured".to_string()))?;
     let claims = Claims {
         sub: id.to_string(),
         email: email.to_string(),

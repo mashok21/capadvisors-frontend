@@ -20,6 +20,7 @@ zeroize = "=1.8.1"
 jsonwebtoken = "9.3"
 argon2 = { version = "0.5", features = ["std"] }
 password-hash = { version = "0.5", features = ["rand_core"] }
+base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 rand = "0.8"
 tempfile = "3"

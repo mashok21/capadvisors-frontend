@@ -1,3 +1,4 @@
+pub mod ai_detector;
 pub mod embedding;
 pub mod gemini_improvise;
 pub mod gemini_map;

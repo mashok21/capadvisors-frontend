@@ -1,7 +1,9 @@
 <script>
   import { onMount } from 'svelte';
   import { auth } from './lib/auth.svelte.js';
+  import EditProfile from './lib/components/EditProfile.svelte';
   import Leaderboard from './lib/components/Leaderboard.svelte';
+  import AdminNexusWorkflow from './lib/components/AdminNexusWorkflow.svelte';
 
   const baseApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -239,6 +241,8 @@
     } catch (e) {
       console.error("Failed to load live coverage:", e);
       connectionError = `Failed to load syllabus coverage statistics: ${e.message}`;
+      questions = [];
+      coverageData = [];
     }
   };
 
@@ -269,7 +273,15 @@
   const handleFileSelect = (e) => {
     const files = e.target.files || e.dataTransfer.files;
     if (files && files.length > 0) {
-      selectedFile = files[0];
+      const file = files[0];
+      const ext = file.name.split('.').pop().toLowerCase();
+      if (ext === 'pdf' || ext === 'txt') {
+        selectedFile = file;
+        connectionError = "";
+      } else {
+        selectedFile = null;
+        connectionError = "Invalid file type. Please upload a .pdf or .txt document.";
+      }
     }
   };
 
@@ -435,7 +447,11 @@
   });
 
   // Active view
-  let activeView = $state('nexus'); // 'nexus' | 'leaderboard'
+  let activeView = $state('nexus'); // 'nexus' | 'leaderboard' | 'profile'
+
+  let isAdmin = $derived(
+    auth.user?.role === 'admin' || auth.user?.role === 'super_admin'
+  );
 
   // Auth form state
   let authEmail = $state('');
@@ -587,6 +603,10 @@
           class="view-tab {activeView === 'leaderboard' ? 'active' : ''}"
           onclick={() => activeView = 'leaderboard'}
         >🏆 Rankings</button>
+        <button
+          class="view-tab {activeView === 'profile' ? 'active' : ''}"
+          onclick={() => activeView = 'profile'}
+        >👤 Profile</button>
       </div>
 
       <button
@@ -622,23 +642,31 @@
     </div>
   </div>
 
-  <!-- Global Metrics Summary -->
-  <section class="global-stats-row">
-    <div class="stat-box">
-      <span class="stat-label">Mapped Chapters</span>
-      <span class="stat-val">{mappedChaptersCount} / 15</span>
+  <!-- Consolidated Telemetry Bar -->
+  <section class="telemetry-bar">
+    <div class="telemetry-item" class:dimmed={mappedChaptersCount === 0}>
+      <span class="telemetry-label">Mapped Chapters</span>
+      <span class="telemetry-val" class:active={mappedChaptersCount > 0}>
+        {mappedChaptersCount > 0 ? `${mappedChaptersCount} / 15` : '--'}
+      </span>
     </div>
-    <div class="stat-box">
-      <span class="stat-label">Extracted Chunks</span>
-      <span class="stat-val">{totalChunksSum}</span>
+    <div class="telemetry-item" class:dimmed={totalChunksSum === 0}>
+      <span class="telemetry-label">Extracted Chunks</span>
+      <span class="telemetry-val" class:active={totalChunksSum > 0}>
+        {totalChunksSum > 0 ? totalChunksSum : '--'}
+      </span>
     </div>
-    <div class="stat-box font-gradient">
-      <span class="stat-label">Word Count Mapped</span>
-      <span class="stat-val">{totalWordsSum.toLocaleString()}</span>
+    <div class="telemetry-item" class:dimmed={totalWordsSum === 0}>
+      <span class="telemetry-label">Word Count Mapped</span>
+      <span class="telemetry-val" class:active={totalWordsSum > 0}>
+        {totalWordsSum > 0 ? totalWordsSum.toLocaleString() : '--'}
+      </span>
     </div>
-    <div class="stat-box">
-      <span class="stat-label">Questions Generated</span>
-      <span class="stat-val">{totalQuestionsSum}</span>
+    <div class="telemetry-item" class:dimmed={totalQuestionsSum === 0}>
+      <span class="telemetry-label">Questions Generated</span>
+      <span class="telemetry-val" class:active={totalQuestionsSum > 0}>
+        {totalQuestionsSum > 0 ? totalQuestionsSum : '--'}
+      </span>
     </div>
   </section>
 
@@ -649,8 +677,19 @@
     </div>
   {/if}
 
-  <!-- Main Grid Layout -->
-  <div class="dashboard-grid" class:hidden={activeView !== 'nexus'}>
+  {#if activeView === 'profile'}
+    <div class="profile-panel">
+      <EditProfile {baseApiUrl} />
+    </div>
+  {/if}
+
+  <!-- Admin users get the sequential workflow; quiz_takers get the two-column grid -->
+  {#if activeView === 'nexus' && isAdmin}
+    <AdminNexusWorkflow {baseApiUrl} />
+  {/if}
+
+  <!-- Main Grid Layout (quiz_taker view) -->
+  <div class="dashboard-grid" class:hidden={activeView !== 'nexus' || isAdmin}>
     <!-- Left Column: Coverage List -->
     <main class="dashboard-section main-coverage" id="status-dashboard">
       <div class="section-header">
@@ -670,33 +709,20 @@
               <span class="chapter-code">{chapter.chapter_code}</span>
               {#if chapter.mapped_chunks_count > 0}
                 <span class="card-indicator">Mapped</span>
-              {:else}
-                <span class="card-indicator outline">Empty</span>
               {/if}
             </div>
 
             <h3 class="chapter-title">{chapter.chapter_name}</h3>
-
-            <div class="card-metrics">
-              <div class="card-metric">
-                <span class="metric-lbl">Chunks</span>
-                <span class="metric-val">{chapter.mapped_chunks_count}</span>
-              </div>
-              <div class="card-metric">
-                <span class="metric-lbl">Words</span>
-                <span class="metric-val">{chapter.total_word_count}</span>
-              </div>
-              <div class="card-metric highlighted">
-                <span class="metric-lbl">MCQs</span>
-                <span class="metric-val">{chapter.total_questions}</span>
-              </div>
-            </div>
 
             {#if chapter.total_word_count > 0}
               <div class="progress-bar-wrapper">
                 <div class="progress-bar-fill" style="width: {Math.min(100, (chapter.total_word_count / 3000) * 100)}%"></div>
               </div>
             {/if}
+
+            <div class="card-footer-metrics">
+              {chapter.mapped_chunks_count || 0} Chunks  •  {chapter.total_word_count || 0} Words  •  {chapter.total_questions || 0} MCQs
+            </div>
           </button>
         {/each}
       </div>
@@ -752,57 +778,58 @@
         {/if}
       </div>
 
-      <!-- Settings Form -->
-      <div class="upload-settings">
-        <div class="form-group">
-          <label class="form-label" for="select-type">Mapping Analysis Protocol</label>
-          <div class="radio-group">
-            <button 
-              type="button" 
-              class="radio-btn {uploadType === 'BULK' ? 'selected' : ''}" 
-              onclick={() => uploadType = "BULK"}
-            >
-              🔄 Bulk Auto-Classify
-            </button>
-            <button 
-              type="button" 
-              class="radio-btn {uploadType === 'TARGETED' ? 'selected' : ''}" 
-              onclick={() => uploadType = "TARGETED"}
-            >
-              🎯 Targeted Chapter
-            </button>
+      <!-- Settings Form (Progressive Exposure) -->
+      {#if selectedFile}
+        <div class="upload-settings animate-slide">
+          <div class="form-group">
+            <label class="form-label" for="select-type">Mapping Analysis Protocol</label>
+            <div class="radio-group">
+              <button 
+                type="button" 
+                class="radio-btn {uploadType === 'BULK' ? 'selected' : ''}" 
+                onclick={() => uploadType = "BULK"}
+              >
+                🔄 Bulk Auto-Classify
+              </button>
+              <button 
+                type="button" 
+                class="radio-btn {uploadType === 'TARGETED' ? 'selected' : ''}" 
+                onclick={() => uploadType = "TARGETED"}
+              >
+                🎯 Targeted Chapter
+              </button>
+            </div>
+
+            {#if uploadType === "TARGETED"}
+              <div class="inline-select-wrapper animate-slide">
+                <select 
+                  id="select-chapter" 
+                  class="form-select" 
+                  bind:value={targetedChapterId}
+                >
+                  <option value="">-- Choose Chapter --</option>
+                  {#each CHAPTERS as ch}
+                    <option value={ch.id}>{ch.chapter_code}: {ch.chapter_name}</option>
+                  {/each}
+                </select>
+              </div>
+            {/if}
           </div>
+
+          <button 
+            id="btn-upload" 
+            class="upload-trigger-btn"
+            disabled={isUploading || (uploadType === "TARGETED" && !targetedChapterId)}
+            onclick={triggerUpload}
+          >
+            {#if isUploading}
+              <span class="spinner"></span> Mapping & Generating MCQs...
+            {:else}
+              🚀 Analyze & Map Document
+            {/if}
+          </button>
         </div>
-
-        {#if uploadType === "TARGETED"}
-          <div class="form-group animate-slide">
-            <label class="form-label" for="select-chapter">Target Chapter Destination</label>
-            <select 
-              id="select-chapter" 
-              class="form-select" 
-              bind:value={targetedChapterId}
-            >
-              <option value="">-- Choose Chapter --</option>
-              {#each CHAPTERS as ch}
-                <option value={ch.id}>{ch.chapter_code}: {ch.chapter_name}</option>
-              {/each}
-            </select>
-          </div>
-        {/if}
-
-        <button 
-          id="btn-upload" 
-          class="upload-trigger-btn"
-          disabled={!selectedFile || isUploading || (uploadType === "TARGETED" && !targetedChapterId)}
-          onclick={triggerUpload}
-        >
-          {#if isUploading}
-            <span class="spinner"></span> Mapping & Generating MCQs...
-          {:else}
-            🚀 Analyze & Map Document
-          {/if}
-        </button>
-      </div>
+      {/if}
 
       <!-- Info Box -->
       <div class="info-note-box">

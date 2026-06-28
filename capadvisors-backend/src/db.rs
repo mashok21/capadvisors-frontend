@@ -31,7 +31,7 @@ pub struct DbHelper {
 
 impl DbHelper {
     pub async fn init() -> Self {
-        let mut connection_status = "Initialized".to_string();
+        let connection_status: String;
         let turso_url = env::var("TURSO_DATABASE_URL").ok();
         let turso_token = env::var("TURSO_AUTH_TOKEN").ok();
 
@@ -228,6 +228,7 @@ impl DbHelper {
         // Dimension MUST match `EMBEDDING_DIM` in utils/embedding.rs.
         // This table is only meaningful against Turso cloud; local SQLite
         // does not ship the libsql vector extension.
+        if self.connection_status.contains("remote Turso database successfully") {
         conn.execute(
             "CREATE TABLE IF NOT EXISTS chunk_embeddings (
                 chunk_id   TEXT PRIMARY KEY,
@@ -247,6 +248,9 @@ impl DbHelper {
             (),
         )
         .await?;
+        } else {
+            println!("[schema] Skipping vector schema on local SQLite fallback");
+        }
 
         // Persists the structured JSON output from each LLM gap-analysis run.
         conn.execute(
@@ -276,9 +280,45 @@ impl DbHelper {
                               CHECK(status IN ('pending', 'completed', 'failed')),
                 analysis_id   TEXT,
                 error_message TEXT,
-                created_at    TEXT NOT NULL
+                created_at    TEXT NOT NULL,
+                updated_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                attempts      INTEGER NOT NULL DEFAULT 0
             );",
             (),
+        )
+        .await?;
+
+        for (col_name, col_def) in [
+            ("updated_at", "TEXT NOT NULL DEFAULT ''"),
+            ("attempts", "INTEGER NOT NULL DEFAULT 0"),
+        ] {
+            if !column_exists(&conn, "mapping_jobs", col_name).await? {
+                conn.execute(
+                    &format!("ALTER TABLE mapping_jobs ADD COLUMN {} {};", col_name, col_def),
+                    (),
+                )
+                .await?;
+                println!("[schema] Migration: added column '{}' to mapping_jobs", col_name);
+            }
+        }
+
+        conn.execute(
+            "UPDATE mapping_jobs
+             SET updated_at = created_at
+             WHERE updated_at = '' OR updated_at IS NULL",
+            (),
+        )
+        .await?;
+
+        let stale_cutoff = (chrono::Utc::now() - chrono::Duration::hours(2)).to_rfc3339();
+        conn.execute(
+            "UPDATE mapping_jobs
+             SET status = 'failed',
+                 error_message = 'Mapping worker interrupted or timed out before completion',
+                 updated_at = datetime('now')
+             WHERE status = 'pending'
+               AND datetime(COALESCE(updated_at, created_at)) < datetime(?1)",
+            libsql::params![stale_cutoff],
         )
         .await?;
 
@@ -395,6 +435,58 @@ impl DbHelper {
         conn.execute(
             "CREATE INDEX IF NOT EXISTS quiz_activity_student_idx
              ON quiz_activity (student_id, quiz_date);",
+            (),
+        )
+        .await?;
+
+        // Per-submission scorecard record — stores AI detection audit trail and
+        // final marks tally so historical scorecards can be replayed without
+        // re-running the rating engine.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS quiz_submissions (
+                id                      TEXT PRIMARY KEY,
+                student_id              TEXT NOT NULL,
+                quiz_id                 TEXT NOT NULL,
+                questions_evaluated     INTEGER NOT NULL DEFAULT 0,
+                correct_answers         INTEGER NOT NULL DEFAULT 0,
+                ai_confidence_score     REAL    NOT NULL DEFAULT 0.0,
+                is_ai_flagged           INTEGER NOT NULL DEFAULT 0,
+                penalty_points_applied  INTEGER NOT NULL DEFAULT 0,
+                final_scorecard_total   REAL    NOT NULL DEFAULT 0.0,
+                glicko_rating_delta     REAL    NOT NULL DEFAULT 0.0,
+                submitted_at            TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );",
+            (),
+        )
+        .await?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS quiz_submissions_student_idx
+             ON quiz_submissions (student_id, submitted_at);",
+            (),
+        )
+        .await?;
+
+        // Professional profile for CA students — one row per user, upserted on edit.
+        // CHECK constraints mirror the frontend dropdown options so the DB enforces
+        // the same enum values even if the Rust validation layer is bypassed.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS student_profiles (
+                user_id          TEXT PRIMARY KEY,
+                avatar_url       TEXT NOT NULL DEFAULT '',
+                articleship_firm TEXT NOT NULL DEFAULT 'None / Other'
+                                 CHECK(articleship_firm IN (
+                                     'Deloitte', 'KPMG', 'EY', 'PwC',
+                                     'Top-20 Mid-Firm', 'None / Other'
+                                 )),
+                articleship_year TEXT NOT NULL DEFAULT '1st Year'
+                                 CHECK(articleship_year IN (
+                                     '1st Year', '2nd Year', 'Completed', 'Direct Entry'
+                                 )),
+                firm_location    TEXT NOT NULL DEFAULT '',
+                updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );",
             (),
         )
         .await?;

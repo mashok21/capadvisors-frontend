@@ -6,12 +6,17 @@ use uuid::Uuid;
 use crate::{
     db::DbHelper,
     middleware::auth::AuthUser,
-    utils::glicko2::compute_glicko2_update,
+    utils::{
+        ai_detector::analyze_text_for_ai,
+        glicko2::compute_glicko2_update,
+    },
 };
 
 const DEFAULT_RATING: f64 = 1500.0;
 const DEFAULT_RD: f64 = 350.0;
 const DEFAULT_VOL: f64 = 0.06;
+const AI_FLAG_THRESHOLD: f64 = 0.80;
+const AI_PENALTY_MARKS: i64 = 5;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Request / response shapes
@@ -41,6 +46,10 @@ pub struct QuizSubmitResponse {
     pub rank_tier: String,
     pub questions_evaluated: usize,
     pub questions_skipped: usize,
+    pub is_ai_flagged: bool,
+    pub penalty_points_applied: i64,
+    pub final_scorecard_total: f64,
+    pub glicko_rating_delta: f64,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -50,10 +59,13 @@ pub struct QuizSubmitResponse {
 struct EvaluatedAnswer {
     question_id: String,
     chapter_id: String,
+    student_answer: String,
     q_rating: f64,
     q_rd: f64,
     q_vol: f64,
-    score: f64, // 1.0 = student correct, 0.0 = student wrong
+    score: f64,         // 1.0 = correct, 0.0 = wrong (zeroed if AI-flagged)
+    ai_confidence: f64, // Gemini AI detection result [0.0, 1.0]
+    ai_flagged: bool,   // true when ai_confidence >= AI_FLAG_THRESHOLD
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -62,6 +74,7 @@ struct EvaluatedAnswer {
 // Runs the Glicko-2 match engine over each answered question:
 //   - Student faces each question as an individual opponent.
 //   - Score: 1.0 if correct (student wins), 0.0 if wrong (question wins).
+//   - AI detection: answers with confidence ≥ 0.80 are zeroed and penalised.
 //   - Student rating updated against all questions in one period.
 //   - Each question's rating updated against the student in its own period
 //     with the reversed score (question wins ↔ student fails).
@@ -101,7 +114,6 @@ pub async fn submit_quiz(
         };
 
         if correct_answer.trim().is_empty() {
-            // Admin hasn't set an answer key for this question yet
             skipped += 1;
             continue;
         }
@@ -115,10 +127,13 @@ pub async fn submit_quiz(
         evaluated.push(EvaluatedAnswer {
             question_id: answer.question_id.clone(),
             chapter_id,
+            student_answer: answer.selected_option.clone(),
             q_rating,
             q_rd,
             q_vol,
             score,
+            ai_confidence: 0.0,
+            ai_flagged: false,
         });
     }
 
@@ -135,18 +150,50 @@ pub async fn submit_quiz(
             rank_tier: rank_tier(old_rating),
             questions_evaluated: 0,
             questions_skipped: skipped,
+            is_ai_flagged: false,
+            penalty_points_applied: 0,
+            final_scorecard_total: 0.0,
+            glicko_rating_delta: 0.0,
         }));
     }
 
-    // 3. Compute student's updated rating — all questions as opponents
+    // 3. AI detection pass — analyse each student answer for AI-generation markers.
+    //    Flagged answers have their Glicko score zeroed and accumulate a marks penalty.
+    //    On detection error the answer is left unpunished — a network blip must not
+    //    invalidate a legitimate submission.
+    let client = reqwest::Client::new();
+    for e in &mut evaluated {
+        let confidence = analyze_text_for_ai(&client, &e.student_answer)
+            .await
+            .unwrap_or(0.0);
+        e.ai_confidence = confidence;
+        if confidence >= AI_FLAG_THRESHOLD {
+            e.ai_flagged = true;
+            e.score = 0.0;
+        }
+    }
+
+    let flagged_count = evaluated.iter().filter(|e| e.ai_flagged).count() as i64;
+    let is_ai_flagged = flagged_count > 0;
+    let penalty_points: i64 = flagged_count * AI_PENALTY_MARKS;
+    let max_ai_confidence = evaluated
+        .iter()
+        .map(|e| e.ai_confidence)
+        .fold(0.0f64, f64::max);
+    let correct_count = evaluated.iter().filter(|e| e.score > 0.5).count() as i64;
+    let final_scorecard_total = (correct_count as f64) - (penalty_points as f64);
+
+    // 4. Compute student's updated rating — all questions as opponents.
+    //    AI-flagged answers pass score=0.0 so the infraction depresses the rating.
     let student_matches: Vec<(f64, f64, f64)> = evaluated
         .iter()
         .map(|e| (e.q_rating, e.q_rd, e.score))
         .collect();
     let (new_rating, new_rd, new_vol) =
         compute_glicko2_update(old_rating, old_rd, old_vol, student_matches);
+    let glicko_rating_delta = new_rating - old_rating;
 
-    // 4. Compute each question's updated rating — student is the single opponent,
+    // 5. Compute each question's updated rating — student is the single opponent,
     //    score reversed (question wins when student answers incorrectly)
     let question_updates: Vec<(String, f64, f64, f64)> = evaluated
         .iter()
@@ -162,7 +209,7 @@ pub async fn submit_quiz(
         })
         .collect();
 
-    // 5. Persist all changes atomically
+    // 6. Persist all changes atomically
     let tx = conn
         .transaction()
         .await
@@ -181,7 +228,7 @@ pub async fn submit_quiz(
              updated_at       = CURRENT_TIMESTAMP",
         libsql::params![
             student_id.clone(),
-            claims.email.clone(), // display_name fallback; preserved by ON CONFLICT path
+            claims.email.clone(),
             new_rating,
             new_rd,
             new_vol,
@@ -214,7 +261,8 @@ pub async fn submit_quiz(
     }
 
     // Record per-chapter activity for heatmap and focus badges.
-    // Aggregate correct/total counts per chapter within this quiz session.
+    // Scores are already penalised (0.0 for AI-flagged), so the activity table
+    // reflects only genuinely earned correct counts.
     let mut chapter_stats: HashMap<String, (i64, i64)> = HashMap::new();
     for e in &evaluated {
         let entry = chapter_stats.entry(e.chapter_id.clone()).or_insert((0, 0));
@@ -247,6 +295,35 @@ pub async fn submit_quiz(
         })?;
     }
 
+    // Write the immutable scorecard and AI audit record for this submission.
+    let submission_id = Uuid::new_v4().to_string();
+    tx.execute(
+        "INSERT INTO quiz_submissions
+             (id, student_id, quiz_id, questions_evaluated, correct_answers,
+              ai_confidence_score, is_ai_flagged, penalty_points_applied,
+              final_scorecard_total, glicko_rating_delta)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        libsql::params![
+            submission_id,
+            student_id.clone(),
+            quiz_id.clone(),
+            evaluated.len() as i64,
+            correct_count,
+            max_ai_confidence,
+            is_ai_flagged as i64,
+            penalty_points,
+            final_scorecard_total,
+            (glicko_rating_delta * 100.0).round() / 100.0,
+        ],
+    )
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Submission record failed: {}", e),
+        )
+    })?;
+
     tx.commit()
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -262,6 +339,10 @@ pub async fn submit_quiz(
         rank_tier: rank_tier(new_rating),
         questions_evaluated: evaluated.len(),
         questions_skipped: skipped,
+        is_ai_flagged,
+        penalty_points_applied: penalty_points,
+        final_scorecard_total,
+        glicko_rating_delta: (glicko_rating_delta * 100.0).round() / 100.0,
     }))
 }
 
