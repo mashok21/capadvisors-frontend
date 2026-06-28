@@ -241,6 +241,8 @@
     } catch (e) {
       console.error("Failed to load live coverage:", e);
       connectionError = `Failed to load syllabus coverage statistics: ${e.message}`;
+      questions = [];
+      coverageData = [];
     }
   };
 
