@@ -209,7 +209,21 @@ impl DbHelper {
         )
         .await?;
 
-        // ── Vector store for the Map & Analyse pipeline ──────────────────────
+        // Create Student Profiles Table (Extended Candidate Profiles)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS student_profiles (
+                user_id TEXT PRIMARY KEY,
+                avatar_url TEXT DEFAULT '',
+                articleship_firm TEXT DEFAULT 'None / Other',
+                articleship_year TEXT DEFAULT '',
+                firm_location TEXT DEFAULT '',
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );",
+            (),
+        )
+        .await?;
+
+        //  Vector store for the Map & Analyse pipeline 
         // Extends document_chunks with a 768-dim F32_BLOB column.
         // Dimension MUST match `EMBEDDING_DIM` in utils/embedding.rs.
         // This table is only meaningful against Turso cloud; local SQLite
@@ -225,7 +239,7 @@ impl DbHelper {
         )
         .await?;
 
-        // DiskANN vector index — enables sub-linear approximate nearest-neighbour
+        // DiskANN vector index  enables sub-linear approximate nearest-neighbour
         // search via `vector_top_k('chunk_embeddings_vec_idx', query, k)`.
         conn.execute(
             "CREATE INDEX IF NOT EXISTS chunk_embeddings_vec_idx
@@ -279,7 +293,7 @@ impl DbHelper {
             ("diagnostic_variants_json",  "TEXT    NOT NULL DEFAULT '[]'"),
         ] {
             if column_exists(&conn, "chapter_gap_analysis", col_name).await? {
-                continue; // Already present — restart-safe skip.
+                continue; // Already present  restart-safe skip.
             }
             let sql = format!(
                 "ALTER TABLE chapter_gap_analysis ADD COLUMN {} {};",
@@ -310,7 +324,7 @@ impl DbHelper {
         )
         .await?;
 
-        // Live question pool — questions graduate here after admin approval.
+        // Live question pool  questions graduate here after admin approval.
         // Glicko-2 fields track per-question difficulty via student interaction.
         conn.execute(
             "CREATE TABLE IF NOT EXISTS quiz_databank (
@@ -328,7 +342,7 @@ impl DbHelper {
         )
         .await?;
 
-        // Staging queue — raw questions from the mapping pipeline await admin
+        // Staging queue  raw questions from the mapping pipeline await admin
         // review before promotion into quiz_databank.
         conn.execute(
             "CREATE TABLE IF NOT EXISTS question_staging_queue (

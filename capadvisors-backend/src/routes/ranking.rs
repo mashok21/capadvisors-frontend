@@ -68,6 +68,8 @@ pub struct LeaderboardEntry {
     pub accuracy_correct: i64,
     pub accuracy_total: i64,
     pub focus_badges: Vec<String>,
+    pub articleship_firm: String,
+    pub avatar_url: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -393,28 +395,21 @@ async fn get_leaderboard_inner(db: DbHelper) -> Result<Vec<LeaderboardEntry>, St
         return Ok(Vec::new());
     }
 
+    // Use explicit SQL relational join as per architectural mandate
     let mut stmt = conn
         .prepare(
             "SELECT
-                student_id,
-                display_name,
-                rating,
-                rating_deviation,
-                volatility,
-                games_played,
-                national_rank
-             FROM (
-                SELECT
-                    student_id,
-                    display_name,
-                    rating,
-                    rating_deviation,
-                    volatility,
-                    games_played,
-                    RANK() OVER (ORDER BY rating DESC) as national_rank
-                FROM student_ratings
-             )
-             ORDER BY rating DESC, rating_deviation ASC, student_id ASC
+                sr.student_id,
+                sr.display_name,
+                sr.rating,
+                sr.rating_deviation,
+                sr.volatility,
+                sr.games_played,
+                COALESCE(sp.articleship_firm, 'None / Other') as articleship_firm,
+                COALESCE(sp.avatar_url, '') as avatar_url
+             FROM student_ratings sr
+             LEFT JOIN student_profiles sp ON sp.user_id = sr.student_id
+             ORDER BY sr.rating DESC, sr.rating_deviation ASC, sr.student_id ASC
              LIMIT 100",
         )
         .await
@@ -422,15 +417,18 @@ async fn get_leaderboard_inner(db: DbHelper) -> Result<Vec<LeaderboardEntry>, St
     let mut rows = stmt.query(()).await.map_err(|e| e.to_string())?;
 
     let mut entries = Vec::new();
+    let mut rank = 1;
     while let Some(row) = rows.next().await.map_err(|e| e.to_string())? {
-        let national_rank: i64 = row.get(6).map_err(|e| e.to_string())?;
+        let rating: f64 = row.get(2).map_err(|e| e.to_string())?;
+        let articleship_firm: String = row.get(6).unwrap_or_else(|_| "None / Other".to_string());
+        let avatar_url: String = row.get(7).unwrap_or_default();
+
         let percentile = if total_students == 1 {
             100.0
         } else {
-            ((total_students - national_rank + 1) as f64 / total_students as f64) * 100.0
+            ((total_students - rank + 1) as f64 / total_students as f64) * 100.0
         };
 
-        let rating: f64 = row.get(2).map_err(|e| e.to_string())?;
         entries.push(LeaderboardEntry {
             student_id: row.get(0).map_err(|e| e.to_string())?,
             display_name: row.get(1).map_err(|e| e.to_string())?,
@@ -438,13 +436,16 @@ async fn get_leaderboard_inner(db: DbHelper) -> Result<Vec<LeaderboardEntry>, St
             rating_deviation: row.get(3).map_err(|e| e.to_string())?,
             volatility: row.get(4).map_err(|e| e.to_string())?,
             games_played: row.get(5).map_err(|e| e.to_string())?,
-            national_rank,
+            national_rank: rank,
             percentile,
             rank_tier: rank_tier_from_rating(rating),
             accuracy_correct: 0,
             accuracy_total: 0,
             focus_badges: Vec::new(),
+            articleship_firm,
+            avatar_url,
         });
+        rank += 1;
     }
 
     // Enrich entries with accuracy stats and focus badges from quiz_activity.
