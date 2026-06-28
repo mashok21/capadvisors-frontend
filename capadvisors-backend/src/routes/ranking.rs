@@ -68,6 +68,10 @@ pub struct LeaderboardEntry {
     pub accuracy_correct: i64,
     pub accuracy_total: i64,
     pub focus_badges: Vec<String>,
+    /// Sourced from student_profiles via LEFT JOIN — empty string when no profile row exists.
+    pub avatar_url: String,
+    /// Sourced from student_profiles via LEFT JOIN — empty string when no profile row exists.
+    pub articleship_firm: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -393,16 +397,20 @@ async fn get_leaderboard_inner(db: DbHelper) -> Result<Vec<LeaderboardEntry>, St
         return Ok(Vec::new());
     }
 
+    // LEFT JOIN student_profiles keeps avatar_url and articleship_firm in their
+    // normalised home table — student_ratings is never extended with profile columns.
     let mut stmt = conn
         .prepare(
             "SELECT
-                student_id,
-                display_name,
-                rating,
-                rating_deviation,
-                volatility,
-                games_played,
-                national_rank
+                sr.student_id,
+                sr.display_name,
+                sr.rating,
+                sr.rating_deviation,
+                sr.volatility,
+                sr.games_played,
+                sr.national_rank,
+                COALESCE(sp.avatar_url,       '')            AS avatar_url,
+                COALESCE(sp.articleship_firm, '')            AS articleship_firm
              FROM (
                 SELECT
                     student_id,
@@ -411,10 +419,11 @@ async fn get_leaderboard_inner(db: DbHelper) -> Result<Vec<LeaderboardEntry>, St
                     rating_deviation,
                     volatility,
                     games_played,
-                    RANK() OVER (ORDER BY rating DESC) as national_rank
+                    RANK() OVER (ORDER BY rating DESC) AS national_rank
                 FROM student_ratings
-             )
-             ORDER BY rating DESC, rating_deviation ASC, student_id ASC
+             ) sr
+             LEFT JOIN student_profiles sp ON sp.user_id = sr.student_id
+             ORDER BY sr.rating DESC, sr.rating_deviation ASC, sr.student_id ASC
              LIMIT 100",
         )
         .await
@@ -432,18 +441,20 @@ async fn get_leaderboard_inner(db: DbHelper) -> Result<Vec<LeaderboardEntry>, St
 
         let rating: f64 = row.get(2).map_err(|e| e.to_string())?;
         entries.push(LeaderboardEntry {
-            student_id: row.get(0).map_err(|e| e.to_string())?,
-            display_name: row.get(1).map_err(|e| e.to_string())?,
+            student_id:       row.get(0).map_err(|e| e.to_string())?,
+            display_name:     row.get(1).map_err(|e| e.to_string())?,
             rating,
             rating_deviation: row.get(3).map_err(|e| e.to_string())?,
-            volatility: row.get(4).map_err(|e| e.to_string())?,
-            games_played: row.get(5).map_err(|e| e.to_string())?,
+            volatility:       row.get(4).map_err(|e| e.to_string())?,
+            games_played:     row.get(5).map_err(|e| e.to_string())?,
             national_rank,
             percentile,
-            rank_tier: rank_tier_from_rating(rating),
+            rank_tier:        rank_tier_from_rating(rating),
             accuracy_correct: 0,
-            accuracy_total: 0,
-            focus_badges: Vec::new(),
+            accuracy_total:   0,
+            focus_badges:     Vec::new(),
+            avatar_url:       row.get::<String>(7).unwrap_or_default(),
+            articleship_firm: row.get::<String>(8).unwrap_or_default(),
         });
     }
 
