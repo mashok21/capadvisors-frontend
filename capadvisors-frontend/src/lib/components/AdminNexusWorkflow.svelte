@@ -183,85 +183,87 @@
           </p>
         </div>
 
-        {#if uploadSuccess}
-          <div class="success-box">
-            <span class="sb-icon">✓</span>
-            <div class="sb-body">
-              <p class="sb-title">Document ingested successfully</p>
-              <p class="sb-meta">
-                {uploadSuccess.total_chunks ?? '—'} chunks mapped ·
-                {uploadSuccess.total_words?.toLocaleString() ?? '—'} words extracted
-              </p>
-            </div>
-            <button
-              class="btn-ghost"
-              onclick={clearFile}
-            >Upload Another</button>
-          </div>
-        {:else}
-          <div
-            class="dropzone {dragOver ? 'dz--over' : ''} {selectedFile ? 'dz--has-file' : ''}"
-            ondragover={(e) => { e.preventDefault(); dragOver = true; }}
-            ondragleave={() => (dragOver = false)}
-            ondrop={(e) => { e.preventDefault(); dragOver = false; handleFileSelect(e); }}
-            role="region"
-            aria-label="File upload dropzone"
-          >
-            <input
-              type="file"
-              id="anw-file"
-              accept=".pdf,.txt"
-              class="anw-hidden-input"
-              onchange={handleFileSelect}
-              bind:this={fileInput}
-            />
-            {#if !selectedFile}
-              <label for="anw-file" class="dz-label">
-                <span class="dz-icon">📥</span>
-                <span class="dz-text">Drag and drop or click to browse</span>
-                <span class="dz-hint">Supports .pdf · .txt</span>
-                <span class="dz-btn">Browse Files</span>
-              </label>
-            {:else}
-              <div class="file-preview">
-                <span class="fp-icon">📄</span>
-                <div class="fp-meta">
-                  <span class="fp-name">{selectedFile.name}</span>
-                  <span class="fp-size">{(selectedFile.size / 1024).toFixed(1)} KB</span>
-                </div>
-                <button
-                  class="fp-remove"
-                  onclick={handleRemoveFile}
-                  title="Remove"
-                >✕</button>
-              </div>
-            {/if}
-          </div>
-
-          {#if uploadError}
-            <p class="upload-error">⚠ {uploadError}</p>
-          {/if}
-
-          {#if selectedFile}
-            <div class="upload-settings">
-              <div class="us-row">
-                <span class="us-label">Target</span>
-                <span class="us-value">{selectedChapter?.chapter_code} · Targeted Mapping</span>
+        {#key selectedFile}
+          {#if uploadSuccess}
+            <div class="success-box">
+              <span class="sb-icon">✓</span>
+              <div class="sb-body">
+                <p class="sb-title">Document ingested successfully</p>
+                <p class="sb-meta">
+                  {uploadSuccess.total_chunks ?? '—'} chunks mapped ·
+                  {uploadSuccess.total_words?.toLocaleString() ?? '—'} words extracted
+                </p>
               </div>
               <button
-                class="btn-primary"
-                disabled={isUploading}
-                onclick={triggerUpload}
-              >
-                {#if isUploading}
-                  <span class="spin"></span> Mapping & Generating MCQs…
-                {:else}
-                  🚀 Analyse & Ingest Document
-                {/if}
-              </button>
+                class="btn-ghost"
+                onclick={clearFile}
+              >Upload Another</button>
             </div>
+          {:else}
+            <div
+              class="dropzone {dragOver ? 'dz--over' : ''} {selectedFile ? 'dz--has-file' : ''}"
+              ondragover={(e) => { e.preventDefault(); dragOver = true; }}
+              ondragleave={() => (dragOver = false)}
+              ondrop={(e) => { e.preventDefault(); dragOver = false; handleFileSelect(e); }}
+              role="region"
+              aria-label="File upload dropzone"
+            >
+              <input
+                type="file"
+                id="anw-file"
+                accept=".pdf,.txt"
+                class="anw-hidden-input"
+                onchange={handleFileSelect}
+                bind:this={fileInput}
+              />
+              {#if !selectedFile}
+                <label for="anw-file" class="dz-label">
+                  <span class="dz-icon">📥</span>
+                  <span class="dz-text">Drag and drop or click to browse</span>
+                  <span class="dz-hint">Supports .pdf · .txt</span>
+                  <span class="dz-btn">Browse Files</span>
+                </label>
+              {:else}
+                <div class="file-preview">
+                  <span class="fp-icon">📄</span>
+                  <div class="fp-meta">
+                    <span class="fp-name">{selectedFile.name}</span>
+                    <span class="fp-size">{(selectedFile.size / 1024).toFixed(1)} KB</span>
+                  </div>
+                  <button
+                    class="fp-remove"
+                    onclick={handleRemoveFile}
+                    title="Remove"
+                  >✕</button>
+                </div>
+              {/if}
+            </div>
+
+            {#if uploadError}
+              <p class="upload-error">⚠ {uploadError}</p>
+            {/if}
+
+            {#if selectedFile}
+              <div class="upload-settings">
+                <div class="us-row">
+                  <span class="us-label">Target</span>
+                  <span class="us-value">{selectedChapter?.chapter_code} · Targeted Mapping</span>
+                </div>
+                <button
+                  class="btn-primary"
+                  disabled={isUploading}
+                  onclick={triggerUpload}
+                >
+                  {#if isUploading}
+                    <span class="spin"></span> Mapping & Generating MCQs…
+                  {:else}
+                    🚀 Analyse & Ingest Document
+                  {/if}
+                </button>
+              </div>
+            {/if}
           {/if}
-        {/if}
+        {/key}
 
         <div class="phase-ft">
           <button class="btn-ghost" onclick={() => (phase = 1)}>← Back</button>
