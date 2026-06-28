@@ -463,7 +463,7 @@ impl DbHelper {
                 articleship_firm TEXT NOT NULL DEFAULT 'None / Other'
                                  CHECK(articleship_firm IN (
                                      'Deloitte', 'KPMG', 'EY', 'PwC',
-                                     'Top-20 Mid-Firm', 'Individual Practice', 'None / Other'
+                                     'Top-20 Mid-Firm', 'None / Other'
                                  )),
                 articleship_year TEXT NOT NULL DEFAULT '1st Year'
                                  CHECK(articleship_year IN (

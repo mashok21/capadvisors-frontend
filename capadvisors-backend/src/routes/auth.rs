@@ -197,9 +197,8 @@ pub async fn login(
             .verify_password(payload.password.as_bytes(), &parsed_hash)
             .is_ok()
         {
-            // Temporary admin force override
             if let Ok(bootstrap_email) = std::env::var("BOOTSTRAP_SUPER_ADMIN") {
-                if db_email == bootstrap_email {
+                if db_email == bootstrap_email.trim().to_lowercase() {
                     role = "super_admin".to_string();
                 }
             }

@@ -11,7 +11,7 @@
     },
     {
       label: 'Mid-Firms & Other',
-      options: ['Top-20 Mid-Firm', 'Individual Practice', 'None / Other'],
+      options: ['Top-20 Mid-Firm', 'None / Other'],
     },
   ];
 

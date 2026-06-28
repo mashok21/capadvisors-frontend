@@ -9,7 +9,6 @@ const VALID_FIRMS: &[&str] = &[
     "EY",
     "PwC",
     "Top-20 Mid-Firm",
-    "Individual Practice",
     "None / Other",
 ];
 const VALID_YEARS: &[&str] = &["1st Year", "2nd Year", "Completed", "Direct Entry"];
