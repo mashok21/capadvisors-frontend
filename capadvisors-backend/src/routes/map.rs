@@ -132,6 +132,14 @@ pub async fn map_document(
         move || -> Result<String, (StatusCode, String)> {
             let path = tmp.path().to_path_buf();
             let text = if file_name_bg.to_lowercase().ends_with(".pdf") {
+                // In-memory/local decryption pass using lopdf
+                if let Ok(mut doc) = lopdf::Document::load(&path) {
+                    if doc.is_encrypted() {
+                        let _ = doc.decrypt(""); // decrypt with empty password standard fallback
+                        let _ = doc.save(&path); // save it back decrypted
+                    }
+                }
+
                 match pdf_extract::extract_text(&path) {
                     Ok(t) => t,
                     Err(e) => {

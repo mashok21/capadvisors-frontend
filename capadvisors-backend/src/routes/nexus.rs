@@ -164,6 +164,14 @@ pub async fn upload_document(
             return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create temp PDF: {}", e)));
         }
 
+        // In-memory/local decryption pass using lopdf
+        if let Ok(mut doc) = lopdf::Document::load(&temp_filename) {
+            if doc.is_encrypted() {
+                let _ = doc.decrypt(""); // decrypt with empty password standard fallback
+                let _ = doc.save(&temp_filename); // save it back decrypted
+            }
+        }
+
         let extracted = match pdf_extract::extract_text(&temp_filename) {
             Ok(t) => {
                 std::fs::remove_file(&temp_filename).ok();
