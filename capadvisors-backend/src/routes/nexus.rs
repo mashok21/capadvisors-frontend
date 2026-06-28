@@ -165,13 +165,50 @@ pub async fn upload_document(
         }
 
         let extracted = match pdf_extract::extract_text(&temp_filename) {
-            Ok(t) => t,
-            Err(e) => {
+            Ok(t) => {
                 std::fs::remove_file(&temp_filename).ok();
-                return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to parse PDF: {}", e)));
+                t
+            }
+            Err(e) => {
+                // Try fallback decryption via qpdf (useful if encrypted or print-restricted)
+                let decrypted_filename = format!("temp_decrypted_{}.pdf", Uuid::new_v4());
+                let output = std::process::Command::new("qpdf")
+                    .arg("--decrypt")
+                    .arg("--password=")
+                    .arg(&temp_filename)
+                    .arg(&decrypted_filename)
+                    .output();
+
+                match output {
+                    Ok(out) if out.status.success() => {
+                        let t = match pdf_extract::extract_text(&decrypted_filename) {
+                            Ok(text) => text,
+                            Err(err) => {
+                                std::fs::remove_file(&decrypted_filename).ok();
+                                std::fs::remove_file(&temp_filename).ok();
+                                return Err((
+                                    StatusCode::INTERNAL_SERVER_ERROR,
+                                    format!("Failed to parse decrypted PDF: {}", err),
+                                ));
+                            }
+                        };
+                        std::fs::remove_file(&decrypted_filename).ok();
+                        std::fs::remove_file(&temp_filename).ok();
+                        t
+                    }
+                    _ => {
+                        std::fs::remove_file(&temp_filename).ok();
+                        return Err((
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!(
+                                "Failed to parse PDF (original error: {}). Fallback qpdf decryption failed or not installed.",
+                                e
+                            ),
+                        ));
+                    }
+                }
             }
         };
-        std::fs::remove_file(&temp_filename).ok();
         extracted
     } else {
         String::from_utf8_lossy(&file_data).into_owned()
