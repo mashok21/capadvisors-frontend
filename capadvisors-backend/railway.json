@@ -5,6 +5,6 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "startCommand": "capadvisors-backend"
+    "startCommand": "/usr/local/bin/capadvisors-backend"
   }
 }
