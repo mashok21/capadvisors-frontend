@@ -283,10 +283,10 @@
         <div class="edit-form" transition:fade={{ duration: 150 }}>
 
           <div class="field-group">
-            <label class="field-label">
+            <span class="field-label">
               Question Narrative
               {#if isDirty}<span class="dirty-pill">unsaved</span>{/if}
-            </label>
+            </span>
             <textarea
               class="field-textarea"
               bind:value={editQuestionText}
@@ -296,7 +296,7 @@
           </div>
 
           <div class="field-group">
-            <label class="field-label">Answer Key</label>
+            <span class="field-label">Answer Key</span>
             <input
               class="field-input"
               bind:value={editCorrectAnswer}
@@ -306,11 +306,11 @@
           </div>
 
           <div class="field-group">
-            <label class="field-label ai-label">
+            <span class="field-label ai-label">
               <span class="ai-star">✦</span>
               AI Guidance
               <span class="field-hint">Applied to Improvise &amp; Refine operations below</span>
-            </label>
+            </span>
             <textarea
               class="field-textarea guidance-textarea"
               bind:value={guidanceText}
