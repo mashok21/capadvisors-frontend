@@ -42,6 +42,16 @@
   let isUploading     = $state(false);
   let uploadError     = $state('');
   let uploadSuccess   = $state(null);
+  let fileInput       = $state(null);
+
+  function clearFile() {
+    selectedFile = null;
+    uploadError = '';
+    uploadSuccess = null;
+    if (fileInput) {
+      fileInput.value = '';
+    }
+  }
 
   // Phase 4
   let hackTitle    = $state('');
@@ -173,7 +183,7 @@
             </div>
             <button
               class="btn-ghost"
-              onclick={() => { uploadSuccess = null; selectedFile = null; }}
+              onclick={clearFile}
             >Upload Another</button>
           </div>
         {:else}
@@ -191,6 +201,7 @@
               accept=".pdf,.txt"
               class="anw-hidden-input"
               onchange={handleFileSelect}
+              bind:this={fileInput}
             />
             {#if !selectedFile}
               <label for="anw-file" class="dz-label">
@@ -208,7 +219,7 @@
                 </div>
                 <button
                   class="fp-remove"
-                  onclick={() => (selectedFile = null)}
+                  onclick={clearFile}
                   title="Remove"
                 >✕</button>
               </div>
