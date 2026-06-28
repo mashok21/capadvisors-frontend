@@ -1666,3 +1666,9 @@ body {
   transform: translateY(-1px);
 }
 
+
+/* Leaderboard Marquee Container */
+.leaderboard-marquee-container {
+  width: 100%;
+  margin-bottom: 1rem;
+}

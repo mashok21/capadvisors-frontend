@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { auth } from './lib/auth.svelte.js';
+  import ScrollingLeaderboard from '$lib/components/ScrollingLeaderboard.svelte';
 
   const baseApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -536,6 +537,11 @@
     </div>
   {/if}
 
+  <!-- Scrolling Leaderboard Marquee -->
+  <div class="leaderboard-marquee-container">
+    <ScrollingLeaderboard />
+  </div>
+
   <!-- Header -->
   <header class="app-header">
     <div class="logo-wrapper">
@@ -583,7 +589,7 @@
         {#if isRefreshing}
           <span class="spinner"></span>
         {:else}
-          🔄
+          🔍
         {/if}
         Refresh
       </button>
@@ -601,7 +607,7 @@
         onclick={() => auth.logout()}
         title="Sign Out"
       >
-        ⏻ Sign Out
+        ⋮ Sign Out
       </button>
     </div>
   </div>
@@ -739,7 +745,7 @@
               class="radio-btn {uploadType === 'BULK' ? 'selected' : ''}" 
               onclick={() => uploadType = "BULK"}
             >
-              🔄 Bulk Auto-Classify
+              🔍 Bulk Auto-Classify
             </button>
             <button 
               type="button" 
@@ -783,7 +789,7 @@
 
       <!-- Info Box -->
       <div class="info-note-box">
-        <h4>💡 Processing Architecture</h4>
+        <h4>🤖 Processing Architecture</h4>
         <p>
           Documents are divided into sequential ~900-word blocks. Each block is sent to the Gemini API to map it onto one of the 15 chapters of the CA Final AFM curriculum and generate 2 to 3 exam-difficulty scenario questions with logical explanations.
         </p>
@@ -875,7 +881,7 @@
             </div>
           {:else if questions.length === 0}
             <div class="modal-empty-state">
-              <span class="empty-icon">📭</span>
+              <span class="empty-icon">📝</span>
               <p class="empty-bold">No questions generated yet</p>
               <p class="empty-sub">Upload relevant study text or chapters in the right panel to extract chunks and auto-generate questions for this chapter.</p>
             </div>
