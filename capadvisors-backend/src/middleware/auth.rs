@@ -17,15 +17,16 @@ pub struct Claims {
 #[derive(Clone)]
 pub struct AuthUser(pub Claims);
 
+#[axum::async_trait]
 impl<S> FromRequestParts<S> for AuthUser
 where
     S: Send + Sync,
 {
     type Rejection = Response;
 
-    async fn from_request_parts<'a, 'b>(
-        parts: &'a mut axum::http::request::Parts,
-        _state: &'b S,
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        _state: &S,
     ) -> Result<Self, Self::Rejection> {
         let auth_header = parts
             .headers
@@ -61,17 +62,19 @@ where
 /// async fn admin_handler(RequireAdmin(claims): RequireAdmin) { ... }
 /// ```
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct RequireAdmin(pub Claims);
 
+#[axum::async_trait]
 impl<S> FromRequestParts<S> for RequireAdmin
 where
     S: Send + Sync,
 {
     type Rejection = Response;
 
-    async fn from_request_parts<'a, 'b>(
-        parts: &'a mut axum::http::request::Parts,
-        state: &'b S,
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        state: &S,
     ) -> Result<Self, Self::Rejection> {
         let AuthUser(claims) = AuthUser::from_request_parts(parts, state).await?;
 
@@ -94,17 +97,19 @@ where
 /// async fn sensitive_handler(RequireSuperAdmin(claims): RequireSuperAdmin) { ... }
 /// ```
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct RequireSuperAdmin(pub Claims);
 
+#[axum::async_trait]
 impl<S> FromRequestParts<S> for RequireSuperAdmin
 where
     S: Send + Sync,
 {
     type Rejection = Response;
 
-    async fn from_request_parts<'a, 'b>(
-        parts: &'a mut axum::http::request::Parts,
-        state: &'b S,
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        state: &S,
     ) -> Result<Self, Self::Rejection> {
         let AuthUser(claims) = AuthUser::from_request_parts(parts, state).await?;
 

@@ -73,13 +73,6 @@ pub async fn map_document(
     mut multipart: Multipart,
 ) -> Result<(StatusCode, Json<JobSubmitResponse>), (StatusCode, String)> {
     // ── 0. Concurrency gate — non-blocking acquire, 429 if queue is full ──────
-    let permit = semaphore.try_acquire_owned().map_err(|_| {
-        (
-            StatusCode::TOO_MANY_REQUESTS,
-            "Mapping queue is saturated (max 3 concurrent jobs). Retry shortly.".to_string(),
-        )
-    })?;
-
     // ── 1. Stream multipart fields to disk instead of doubling heap ───────────
     let mut chapter_id = String::new();
     let mut file_name = String::new();
@@ -186,6 +179,15 @@ pub async fn map_document(
     let conn = db.get_conn();
     let (chapter_name, chapter_code) = resolve_chapter(&conn, &chapter_id).await?;
 
+    // Acquire the Gemini worker slot only after upload and extraction have
+    // completed, so slow multipart clients cannot monopolize job capacity.
+    let permit = semaphore.try_acquire_owned().map_err(|_| {
+        (
+            StatusCode::TOO_MANY_REQUESTS,
+            "Mapping queue is saturated (max 3 concurrent jobs). Retry shortly.".to_string(),
+        )
+    })?;
+
     // ── 4. Persist source document record ─────────────────────────────────────
     let doc_id = Uuid::new_v4().to_string();
     conn.execute(
@@ -205,8 +207,9 @@ pub async fn map_document(
     let job_id = Uuid::new_v4().to_string();
     let now = chrono::Utc::now().to_rfc3339();
     conn.execute(
-        "INSERT INTO mapping_jobs (id, chapter_id, document_id, status, created_at)
-         VALUES (?1, ?2, ?3, 'pending', ?4)",
+        "INSERT INTO mapping_jobs
+             (id, chapter_id, document_id, status, created_at, updated_at, attempts)
+         VALUES (?1, ?2, ?3, 'pending', ?4, ?4, 1)",
         libsql::params![job_id.clone(), chapter_id.clone(), doc_id.clone(), now],
     )
     .await
@@ -429,10 +432,13 @@ async fn run_mapping_job(
 }
 
 async fn mark_job_completed(conn: &libsql::Connection, job_id: &str, analysis_id: &str) {
+    let now = chrono::Utc::now().to_rfc3339();
     if let Err(e) = conn
         .execute(
-            "UPDATE mapping_jobs SET status = 'completed', analysis_id = ?1 WHERE id = ?2",
-            libsql::params![analysis_id.to_string(), job_id.to_string()],
+            "UPDATE mapping_jobs
+             SET status = 'completed', analysis_id = ?1, updated_at = ?2
+             WHERE id = ?3",
+            libsql::params![analysis_id.to_string(), now, job_id.to_string()],
         )
         .await
     {
@@ -441,10 +447,13 @@ async fn mark_job_completed(conn: &libsql::Connection, job_id: &str, analysis_id
 }
 
 async fn mark_job_failed(conn: &libsql::Connection, job_id: &str, error: &str) {
+    let now = chrono::Utc::now().to_rfc3339();
     if let Err(e) = conn
         .execute(
-            "UPDATE mapping_jobs SET status = 'failed', error_message = ?1 WHERE id = ?2",
-            libsql::params![error.to_string(), job_id.to_string()],
+            "UPDATE mapping_jobs
+             SET status = 'failed', error_message = ?1, updated_at = ?2
+             WHERE id = ?3",
+            libsql::params![error.to_string(), now, job_id.to_string()],
         )
         .await
     {

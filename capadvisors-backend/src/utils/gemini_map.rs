@@ -62,11 +62,22 @@ impl GeminiMapResult {
     /// Validates the structural integrity of the Gemini response before it is
     /// persisted.  Returns `Err` with a human-readable diagnosis on failure.
     ///
-    /// Checks:
-    /// 1. The sum of individual rubric step marks matches `total_marks`
-    ///    (within a 0.5-mark tolerance for floating-point rounding).
-    /// 2. `alternate_diagnostic_variants` contains at most 3 items.
     pub fn validate(&self) -> Result<(), String> {
+        if !(0..=100).contains(&self.coverage_metric) {
+            return Err(format!(
+                "coverage_metric must be between 0 and 100, got {}",
+                self.coverage_metric
+            ));
+        }
+        if self.scoring_rubric_json.total_marks <= 0 {
+            return Err(format!(
+                "total_marks must be positive, got {}",
+                self.scoring_rubric_json.total_marks
+            ));
+        }
+        if self.scoring_rubric_json.steps.is_empty() {
+            return Err("scoring rubric must contain at least one step".to_string());
+        }
         let computed_sum: f64 = self.scoring_rubric_json.steps.iter().map(|s| s.marks).sum();
         let expected = self.scoring_rubric_json.total_marks as f64;
         if (computed_sum - expected).abs() > 0.5 {
@@ -84,6 +95,23 @@ impl GeminiMapResult {
                 "Expected at most 3 diagnostic variants, Gemini returned {}",
                 variant_count
             ));
+        }
+        for variant in &self.alternate_diagnostic_variants {
+            if !(1..=3).contains(&variant.variant_number) {
+                return Err(format!(
+                    "variant_number must be 1, 2, or 3, got {}",
+                    variant.variant_number
+                ));
+            }
+            match variant.variant_type.as_str() {
+                "NUMERICAL_SHIFT" | "STRATEGIC_REVERSE" | "EDGE_CASE_LIMIT" => {}
+                other => {
+                    return Err(format!(
+                        "unsupported diagnostic variant_type '{}'",
+                        other
+                    ));
+                }
+            }
         }
         Ok(())
     }
