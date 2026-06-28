@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { auth } from './lib/auth.svelte.js';
+  import ScrollingLeaderboard from '$lib/components/ScrollingLeaderboard.svelte';
 
   const baseApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -497,7 +498,7 @@
           id="auth-password"
           type="password"
           bind:value={authPassword}
-          placeholder="••••••••"
+          placeholder="        "
           required
           autocomplete={authIsRegistering ? 'new-password' : 'current-password'}
         />
@@ -530,11 +531,16 @@
 
   {#if connectionError}
     <div class="connection-error-toast animate-slide" id="connection-error-toast">
-      <span class="error-icon">⚠️</span>
+      <span class="error-icon">  </span>
       <span class="error-msg">{connectionError}</span>
-      <button class="dismiss-btn" onclick={() => connectionError = ""}>✕</button>
+      <button class="dismiss-btn" onclick={() => connectionError = ""}> </button>
     </div>
   {/if}
+
+  <!-- Scrolling Leaderboard Marquee -->
+  <div class="leaderboard-marquee-container">
+    <ScrollingLeaderboard />
+  </div>
 
   <!-- Header -->
   <header class="app-header">
@@ -583,7 +589,7 @@
         {#if isRefreshing}
           <span class="spinner"></span>
         {:else}
-          🔄
+           
         {/if}
         Refresh
       </button>
@@ -593,7 +599,7 @@
           class="action-btn danger-btn"
           onclick={resetMockDatabase}
         >
-          🧹 Reset Demo DB
+            Reset Demo DB
         </button>
       {/if}
       <button
@@ -601,7 +607,7 @@
         onclick={() => auth.logout()}
         title="Sign Out"
       >
-        ⏻ Sign Out
+          Sign Out
       </button>
     </div>
   </div>
@@ -705,14 +711,14 @@
         
         {#if !selectedFile}
           <label for="file-input" class="dropzone-label">
-            <span class="upload-icon">📥</span>
+            <span class="upload-icon"> </span>
             <span class="upload-text-bold">Drag and drop file here</span>
             <span class="upload-text-small">Supports .pdf, .txt documents</span>
             <span class="btn-browse">Browse Files</span>
           </label>
         {:else}
           <div class="file-preview-box">
-            <span class="file-icon">📄</span>
+            <span class="file-icon"> </span>
             <div class="file-details">
               <span class="file-name">{selectedFile.name}</span>
               <span class="file-size">{(selectedFile.size / 1024).toFixed(1)} KB</span>
@@ -723,7 +729,7 @@
               onclick={() => selectedFile = null}
               title="Remove File"
             >
-              ✕
+               
             </button>
           </div>
         {/if}
@@ -739,14 +745,14 @@
               class="radio-btn {uploadType === 'BULK' ? 'selected' : ''}" 
               onclick={() => uploadType = "BULK"}
             >
-              🔄 Bulk Auto-Classify
+                Bulk Auto-Classify
             </button>
             <button 
               type="button" 
               class="radio-btn {uploadType === 'TARGETED' ? 'selected' : ''}" 
               onclick={() => uploadType = "TARGETED"}
             >
-              🎯 Targeted Chapter
+                Targeted Chapter
             </button>
           </div>
         </div>
@@ -776,14 +782,14 @@
           {#if isUploading}
             <span class="spinner"></span> Mapping & Generating MCQs...
           {:else}
-            🚀 Analyze & Map Document
+              Analyze & Map Document
           {/if}
         </button>
       </div>
 
       <!-- Info Box -->
       <div class="info-note-box">
-        <h4>💡 Processing Architecture</h4>
+        <h4>  Processing Architecture</h4>
         <p>
           Documents are divided into sequential ~900-word blocks. Each block is sent to the Gemini API to map it onto one of the 15 chapters of the CA Final AFM curriculum and generate 2 to 3 exam-difficulty scenario questions with logical explanations.
         </p>
@@ -797,7 +803,7 @@
       <div class="modal-card scale-up" id="upload-results-modal">
         <div class="modal-header">
           <h3 class="modal-title">Mapping Summary</h3>
-          <button type="button" class="close-btn" onclick={() => showUploadModal = false}>✕</button>
+          <button type="button" class="close-btn" onclick={() => showUploadModal = false}> </button>
         </div>
 
         <div class="modal-body">
@@ -864,7 +870,7 @@
             <span class="modal-subtitle">{selectedChapter.chapter_code}</span>
             <h3 class="modal-title">{selectedChapter.chapter_name}</h3>
           </div>
-          <button type="button" class="close-btn" onclick={() => selectedChapter = null}>✕</button>
+          <button type="button" class="close-btn" onclick={() => selectedChapter = null}> </button>
         </div>
 
         <div class="modal-body scrollable">
@@ -875,7 +881,7 @@
             </div>
           {:else if questions.length === 0}
             <div class="modal-empty-state">
-              <span class="empty-icon">📭</span>
+              <span class="empty-icon"> </span>
               <p class="empty-bold">No questions generated yet</p>
               <p class="empty-sub">Upload relevant study text or chapters in the right panel to extract chunks and auto-generate questions for this chapter.</p>
             </div>
@@ -916,11 +922,11 @@
                     <div class="q-feedback animate-fade">
                       {#if answeredQuestions[question.id] === question.correct_option}
                         <div class="feedback-indicator success">
-                          ✓ Correct Answer Selected
+                            Correct Answer Selected
                         </div>
                       {:else}
                         <div class="feedback-indicator error">
-                          ✗ Incorrect Option Selected
+                            Incorrect Option Selected
                         </div>
                       {/if}
 
@@ -954,7 +960,7 @@
   {/if}
 
   <footer class="app-footer">
-    © 2026 Capadvisors. Crafted for premium asset & learning analytics. Powered by <span class="badge svelte">Svelte 5</span> & <span class="badge rust">Rust Axum</span>.
+      2026 Capadvisors. Crafted for premium asset & learning analytics. Powered by <span class="badge svelte">Svelte 5</span> & <span class="badge rust">Rust Axum</span>.
   </footer>
 </div>
 {/if}
