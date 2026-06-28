@@ -3,6 +3,7 @@
   import { auth } from './lib/auth.svelte.js';
   import EditProfile from './lib/components/EditProfile.svelte';
   import Leaderboard from './lib/components/Leaderboard.svelte';
+  import AdminNexusWorkflow from './lib/components/AdminNexusWorkflow.svelte';
 
   const baseApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -444,7 +445,11 @@
   });
 
   // Active view
-  let activeView = $state('nexus'); // 'nexus' | 'leaderboard'
+  let activeView = $state('nexus'); // 'nexus' | 'leaderboard' | 'profile'
+
+  let isAdmin = $derived(
+    auth.user?.role === 'admin' || auth.user?.role === 'super_admin'
+  );
 
   // Auth form state
   let authEmail = $state('');
@@ -676,8 +681,13 @@
     </div>
   {/if}
 
-  <!-- Main Grid Layout -->
-  <div class="dashboard-grid" class:hidden={activeView !== 'nexus'}>
+  <!-- Admin users get the sequential workflow; quiz_takers get the two-column grid -->
+  {#if activeView === 'nexus' && isAdmin}
+    <AdminNexusWorkflow {baseApiUrl} />
+  {/if}
+
+  <!-- Main Grid Layout (quiz_taker view) -->
+  <div class="dashboard-grid" class:hidden={activeView !== 'nexus' || isAdmin}>
     <!-- Left Column: Coverage List -->
     <main class="dashboard-section main-coverage" id="status-dashboard">
       <div class="section-header">
