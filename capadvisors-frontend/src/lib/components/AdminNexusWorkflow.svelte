@@ -42,27 +42,19 @@
   let isUploading     = $state(false);
   let uploadError     = $state('');
   let uploadSuccess   = $state(null);
-  let fileInput       = $state(null);
-  let chunks          = $state([]);
-  let questions       = $state([]);
+  let dropzoneKey     = $state(0); // incremented on X-click to force full DOM teardown
 
   function clearFile() {
-    selectedFile = null;
-    uploadError = '';
+    selectedFile  = null;
+    uploadError   = '';
     uploadSuccess = null;
-    if (fileInput) {
-      fileInput.value = '';
-    }
+    dropzoneKey++;
   }
 
   function handleRemoveFile() {
     selectedFile = null;
-    if (fileInput) {
-      fileInput.value = ""; // This completely clears the native browser DOM state
-    }
-    // Re-initialize any trailing layout state arrays
-    chunks = [];
-    questions = [];
+    uploadError  = '';
+    dropzoneKey++;
   }
 
   // Phase 4
@@ -183,7 +175,7 @@
           </p>
         </div>
 
-        {#key selectedFile}
+        {#key dropzoneKey}
           {#if uploadSuccess}
             <div class="success-box">
               <span class="sb-icon">✓</span>
@@ -214,7 +206,6 @@
                 accept=".pdf,.txt"
                 class="anw-hidden-input"
                 onchange={handleFileSelect}
-                bind:this={fileInput}
               />
               {#if !selectedFile}
                 <label for="anw-file" class="dz-label">
@@ -227,7 +218,7 @@
                 <div class="file-preview">
                   <span class="fp-icon">📄</span>
                   <div class="fp-meta">
-                    <span class="fp-name">{selectedFile.name}</span>
+                    <span class="fp-name truncate max-w-[280px] sm:max-w-[360px] block text-white font-medium">{selectedFile.name}</span>
                     <span class="fp-size">{(selectedFile.size / 1024).toFixed(1)} KB</span>
                   </div>
                   <button
@@ -615,6 +606,28 @@
   .fp-icon { font-size: 1.5rem; }
   .fp-meta { flex: 1; display: flex; flex-direction: column; gap: 2px; }
   .fp-name { font-size: 0.85rem; font-weight: 600; color: rgba(255,255,255,0.8); }
+  .truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .max-w-\[280px\] {
+    max-width: 280px;
+  }
+  .block {
+    display: block;
+  }
+  .text-white {
+    color: #fff !important;
+  }
+  .font-medium {
+    font-weight: 500 !important;
+  }
+  @media (min-width: 640px) {
+    .sm\:max-w-\[360px\] {
+      max-width: 360px;
+    }
+  }
   .fp-size { font-size: 0.72rem; color: rgba(255,255,255,0.35); }
   .fp-remove {
     background: rgba(251,113,133,0.08);
