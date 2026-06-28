@@ -39,7 +39,7 @@ where
             .ok_or_else(|| unauthorized_response("Invalid Bearer token format"))?;
 
         let secret = std::env::var("JWT_SECRET")
-            .unwrap_or_else(|_| "super_secret_key_change_me".to_string());
+            .map_err(|_| unauthorized_response("JWT configuration error"))?;
 
         let mut validation = Validation::new(Algorithm::HS256);
         validation.validate_exp = true;

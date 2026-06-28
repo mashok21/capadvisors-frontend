@@ -68,6 +68,20 @@ pub async fn upload_avatar(
             ));
         }
 
+        // Magic-byte verification: reject files where the Content-Type header
+        // does not match the actual binary signature.  This closes the attack
+        // vector where a client sends e.g. a PHP script with Content-Type:
+        // image/jpeg and the MIME check alone would pass.
+        if !validate_image_bytes(&content_type, &data) {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!(
+                    "File binary signature does not match declared Content-Type '{}'.",
+                    content_type
+                ),
+            ));
+        }
+
         file_bytes = Some(data.to_vec());
     }
 
@@ -93,4 +107,27 @@ pub async fn upload_avatar(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok(Json(AvatarUploadResponse { avatar_url }))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Private helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Sniffs the first bytes of `bytes` against the canonical magic-byte
+/// signature for `ct`.  Returns `false` if the binary content does not match
+/// the declared MIME type — the caller should reject the upload.
+fn validate_image_bytes(ct: &str, bytes: &[u8]) -> bool {
+    match ct {
+        "image/png" => bytes.starts_with(b"\x89PNG\r\n\x1a\n"),
+        "image/jpeg" => bytes.starts_with(&[0xFF, 0xD8, 0xFF]),
+        "image/gif" => bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a"),
+        "image/webp" => {
+            bytes.len() > 12
+                && bytes[0..4] == *b"RIFF"
+                && bytes[8..12] == *b"WEBP"
+        }
+        // Any MIME type not in ALLOWED_CONTENT_TYPES is already rejected before
+        // this function is reached, but fail-closed for any unknown arm.
+        _ => false,
+    }
 }

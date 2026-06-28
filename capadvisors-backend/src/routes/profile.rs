@@ -90,6 +90,13 @@ pub async fn update_profile(
     State(db): State<DbHelper>,
     Json(payload): Json<UpdateProfileRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    if payload.firm_location.chars().count() > 100 {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "firm_location must not exceed 100 characters".to_string(),
+        ));
+    }
+
     if !VALID_FIRMS.contains(&payload.articleship_firm.as_str()) {
         return Err((
             StatusCode::UNPROCESSABLE_ENTITY,

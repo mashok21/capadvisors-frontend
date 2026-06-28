@@ -225,7 +225,7 @@ fn hash_password(password: &str) -> Result<String, (StatusCode, String)> {
 
 fn sign_jwt(id: &str, email: &str, role: &str) -> Result<String, (StatusCode, String)> {
     let secret = std::env::var("JWT_SECRET")
-        .unwrap_or_else(|_| "super_secret_key_change_me".to_string());
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "JWT_SECRET is not configured".to_string()))?;
     let claims = Claims {
         sub: id.to_string(),
         email: email.to_string(),
