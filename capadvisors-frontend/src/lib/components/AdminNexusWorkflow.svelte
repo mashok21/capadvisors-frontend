@@ -43,6 +43,8 @@
   let uploadError     = $state('');
   let uploadSuccess   = $state(null);
   let fileInput       = $state(null);
+  let chunks          = $state([]);
+  let questions       = $state([]);
 
   function clearFile() {
     selectedFile = null;
@@ -51,6 +53,16 @@
     if (fileInput) {
       fileInput.value = '';
     }
+  }
+
+  function handleRemoveFile() {
+    selectedFile = null;
+    if (fileInput) {
+      fileInput.value = ""; // This completely clears the native browser DOM state
+    }
+    // Re-initialize any trailing layout state arrays
+    chunks = [];
+    questions = [];
   }
 
   // Phase 4
@@ -219,7 +231,7 @@
                 </div>
                 <button
                   class="fp-remove"
-                  onclick={clearFile}
+                  onclick={handleRemoveFile}
                   title="Remove"
                 >✕</button>
               </div>
