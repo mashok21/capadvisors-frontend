@@ -454,6 +454,7 @@
   );
 
   // Auth form state
+  let authName = $state('');
   let authEmail = $state('');
   let authPassword = $state('');
   let authIsRegistering = $state(false);
@@ -465,11 +466,21 @@
     authIsLoading = true;
     authError = '';
     const endpoint = authIsRegistering ? '/api/auth/register' : '/api/auth/login';
+    const payload = authIsRegistering
+      ? { name: authName.trim(), email: authEmail, password: authPassword }
+      : { email: authEmail, password: authPassword };
+
+    if (authIsRegistering && !payload.name) {
+      authError = 'Please enter your full name to create an account.';
+      authIsLoading = false;
+      return;
+    }
+
     try {
       const res = await fetch(`${baseApiUrl}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: authEmail, password: authPassword })
+        body: JSON.stringify(payload)
       });
       if (res.ok) {
         const data = await res.json();
@@ -500,6 +511,19 @@
     {/if}
 
     <form class="auth-form" onsubmit={handleAuthSubmit}>
+      {#if authIsRegistering}
+        <div class="auth-field">
+          <label for="auth-name">Full Name</label>
+          <input
+            id="auth-name"
+            type="text"
+            bind:value={authName}
+            placeholder="Ashok M"
+            required
+            autocomplete="name"
+          />
+        </div>
+      {/if}
       <div class="auth-field">
         <label for="auth-email">Email Address</label>
         <input
@@ -537,7 +561,7 @@
       <button
         type="button"
         class="auth-toggle-btn"
-        onclick={() => { authIsRegistering = !authIsRegistering; authError = ''; }}
+        onclick={() => { authIsRegistering = !authIsRegistering; authError = ''; authName = ''; }}
       >
         {authIsRegistering ? 'Sign In' : 'Register'}
       </button>
