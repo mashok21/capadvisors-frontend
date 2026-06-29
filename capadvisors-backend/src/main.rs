@@ -86,7 +86,7 @@ async fn main() {
                 .layer(DefaultBodyLimit::max(35 * 1024 * 1024)),
         )
         .route(
-            "/api/nexus/chapters/{chapter_id}/questions",
+            "/api/nexus/chapters/:chapter_id/questions",
             get(routes::nexus::get_chapter_questions),
         )
         .route(

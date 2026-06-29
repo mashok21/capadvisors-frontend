@@ -630,7 +630,7 @@ pub async fn get_chapter_questions(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let conn = db.get_conn();
 
-    let resolved_id: String = if chapter_param.contains('-') {
+    let resolved_id: String = if !chapter_param.starts_with("AFM-") {
         chapter_param.clone()
     } else {
         let mut stmt = conn.prepare("SELECT id FROM chapters WHERE chapter_code = ?1").await
