@@ -61,6 +61,9 @@
     dropzoneKey++;
   }
 
+  // View masking (super admin impersonation preview)
+  let currentViewMode = $state('super_admin'); // 'super_admin' | 'admin' | 'user'
+
   // Phase 4
   let hackTitle    = $state('');
   let hackDate     = $state('');
@@ -122,6 +125,21 @@
 </script>
 
 <div class="anw-root">
+
+  <!-- ── View-masking strip (super admin only) ───────────────────────────────── -->
+  {#if auth.user?.role === 'super_admin'}
+    <div class="vms-strip">
+      <div class="vms-label">
+        <span>👁️</span>
+        <span>Super Admin Mode: Simulating Interface As</span>
+      </div>
+      <select class="vms-select" bind:value={currentViewMode}>
+        <option value="super_admin">Super Admin (Absolute Controls)</option>
+        <option value="admin">Admin User (Staff Upload Template)</option>
+        <option value="user">Regular User (Student Study Interface)</option>
+      </select>
+    </div>
+  {/if}
 
   <!-- Phase rail -->
   <nav class="anw-rail" aria-label="Workflow phases">
@@ -187,6 +205,7 @@
           </p>
         </div>
 
+        {#if currentViewMode !== 'user'}
         {#key dropzoneKey}
           {#if uploadSuccess}
             <div class="success-box">
@@ -284,6 +303,12 @@
             {/if}
           {/if}
         {/key}
+        {:else}
+          <div class="vms-user-stub">
+            <span class="vms-stub-icon">🎓</span>
+            <p class="vms-stub-text">Student Study Interface — document upload controls are not visible in this view.</p>
+          </div>
+        {/if}
 
         <div class="phase-ft">
           <button class="btn-ghost" onclick={() => (phase = 1)}>← Back</button>
@@ -847,6 +872,53 @@
     color: #f87171;
     font-size: 0.875rem;
   }
+
+  /* ── View-masking strip ──────────────────────────────────────────────────── */
+  .vms-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background: #121026;
+    border: 1px solid #3b82f6;
+    border-radius: 6px;
+    padding: 8px 14px;
+    margin-bottom: 20px;
+    font-size: 0.75rem;
+    color: #93c5fd;
+    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3);
+  }
+  .vms-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 500;
+  }
+  .vms-select {
+    background: #0f172a;
+    border: 1px solid #1e3a8a;
+    color: #f8fafc;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    outline: none;
+  }
+  .vms-select:focus { border-color: #3b82f6; }
+  .vms-user-stub {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 36px 24px;
+    border: 1px dashed rgba(255,255,255,0.1);
+    border-radius: 12px;
+    text-align: center;
+    animation: anw-fade-in 0.2s ease;
+  }
+  .vms-stub-icon { font-size: 2rem; }
+  .vms-stub-text { color: rgba(255,255,255,0.35); font-size: 0.85rem; margin: 0; }
 
   /* ── Responsive ───────────────────────────────────────────────────────────── */
   @media (max-width: 700px) {
