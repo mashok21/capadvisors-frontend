@@ -1,12 +1,11 @@
 use axum::{
     extract::{DefaultBodyLimit, FromRef},
-    http::HeaderValue,
     routing::{delete, get, post, put},
     Router,
 };
 use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::Semaphore;
-use tower_http::cors::{AllowOrigin, Any, CorsLayer};
+use tower_http::cors::{Any, CorsLayer};
 
 mod db;
 mod middleware {
@@ -53,12 +52,7 @@ async fn main() {
     dotenvy::dotenv().ok();
 
     let cors = CorsLayer::new()
-        .allow_origin(AllowOrigin::list([
-            HeaderValue::from_static("https://capadvisors.in"),
-            HeaderValue::from_static("https://www.capadvisors.in"),
-            HeaderValue::from_static("http://localhost:5173"),
-            HeaderValue::from_static("http://127.0.0.1:5173"),
-        ]))
+        .allow_origin(Any)
         .allow_methods(Any)
         .allow_headers(Any);
 
