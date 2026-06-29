@@ -787,7 +787,11 @@
           <div class="file-preview-box">
             <span class="file-icon">📄</span>
             <div class="file-details">
-              <span class="file-name">{selectedFile.name}</span>
+              <div style="display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; max-width: 240px;">
+                <span class="file-name" title={selectedFile.name}>
+                  {selectedFile.name.length > 4 ? selectedFile.name.slice(0, 4) + '...' : selectedFile.name}
+                </span>
+              </div>
               <span class="file-size">{(selectedFile.size / 1024).toFixed(1)} KB</span>
             </div>
             <button 
