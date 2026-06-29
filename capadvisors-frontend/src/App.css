@@ -981,8 +981,9 @@ body {
   border: 1px solid hsl(var(--card-border));
   border-radius: 24px;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);
-  width: 100%;
-  max-width: 600px;
+  width: 90%;
+  max-width: 640px;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
   max-height: 85vh;
@@ -1058,15 +1059,17 @@ body {
 }
 
 /* Upload result metadata inside modal */
-.upload-meta-grid {
-  display: grid;
-  grid-template-columns: 2fr 1fr 1fr;
-  gap: 1rem;
+.summary-header-strip {
+  display: flex;
+  flex-wrap: wrap; 
+  gap: 0.75rem;
+  width: 100%;
   background: hsl(var(--bg-dark));
   border: 1px solid hsl(var(--card-border));
   padding: 1rem;
   border-radius: 12px;
   margin-bottom: 1.5rem;
+  box-sizing: border-box;
 }
 
 .meta-item {
@@ -1467,8 +1470,8 @@ body {
     padding-right: 0;
     padding-bottom: 0.5rem;
   }
-  .upload-meta-grid {
-    grid-template-columns: 1fr;
+  .summary-header-strip {
+    flex-direction: column;
   }
   .modal-card {
     max-height: 90vh;

@@ -879,7 +879,7 @@
         </div>
 
         <div class="modal-body">
-          <div class="upload-meta-grid">
+          <div class="summary-header-strip">
             <div class="meta-item">
               <span class="meta-lbl">Source Document</span>
               <span class="meta-val">{uploadResult.fileName}</span>
