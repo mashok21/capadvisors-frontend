@@ -215,10 +215,10 @@
                   <span class="dz-btn">Browse Files</span>
                 </label>
               {:else}
-                <div class="file-preview">
+                <div class="file-preview w-full">
                   <span class="fp-icon">📄</span>
                   <div class="fp-meta">
-                    <span class="fp-name" title={selectedFile.name}>{selectedFile.name}</span>
+                    <span class="fp-name" title={selectedFile.name}>{selectedFile.name.length > 4 ? selectedFile.name.slice(0, 4) + '...' : selectedFile.name}</span>
                     <span class="fp-size">{(selectedFile.size / 1024).toFixed(1)} KB</span>
                   </div>
                   <button
@@ -602,6 +602,9 @@
     display: flex;
     align-items: center;
     gap: 12px;
+  }
+  .w-full {
+    width: 100%;
   }
   .fp-icon { font-size: 1.5rem; }
   .fp-meta {
