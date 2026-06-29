@@ -43,17 +43,21 @@
   let uploadError     = $state('');
   let uploadSuccess   = $state(null);
   let dropzoneKey     = $state(0); // incremented on X-click to force full DOM teardown
+  let isAnalyzing     = $state(false);
+  let mappingStatus   = $state('idle'); // 'idle' | 'loading' | 'success' | 'error'
 
   function clearFile() {
     selectedFile  = null;
     uploadError   = '';
     uploadSuccess = null;
+    mappingStatus = 'idle';
     dropzoneKey++;
   }
 
   function handleRemoveFile() {
-    selectedFile = null;
-    uploadError  = '';
+    selectedFile  = null;
+    uploadError   = '';
+    mappingStatus = 'idle';
     dropzoneKey++;
   }
 
@@ -82,8 +86,10 @@
 
   async function triggerUpload() {
     if (!selectedFile || !selectedChapter) return;
-    isUploading = true;
-    uploadError = '';
+    isUploading   = true;
+    isAnalyzing   = true;
+    mappingStatus = 'loading';
+    uploadError   = '';
 
     const fd = new FormData();
     fd.append('file', selectedFile);
@@ -98,11 +104,17 @@
       if (res.ok) {
         uploadSuccess = await res.json();
         selectedFile  = null;
+        isAnalyzing   = false;
+        mappingStatus = 'success';
       } else {
-        uploadError = (await res.text()) || `Upload failed (${res.status})`;
+        uploadError   = (await res.text()) || `Upload failed (${res.status})`;
+        isAnalyzing   = false;
+        mappingStatus = 'error';
       }
     } catch (e) {
-      uploadError = `Upload failed: ${e.message}`;
+      uploadError   = `Upload failed: ${e.message}`;
+      isAnalyzing   = false;
+      mappingStatus = 'error';
     } finally {
       isUploading = false;
     }
@@ -191,6 +203,15 @@
                 onclick={clearFile}
               >Upload Another</button>
             </div>
+
+            {#if mappingStatus === 'success'}
+              <div class="mapping-status mapping-status--success">
+                <p class="ms-text">✅ Chapter mapped successfully into CA Final AFM Curriculum!</p>
+                <button class="btn-primary ms-cta" onclick={() => (phase = 3)}>
+                  ✍️ Proceed to Exam Question Generator
+                </button>
+              </div>
+            {/if}
           {:else}
             <div
               class="dropzone {dragOver ? 'dz--over' : ''} {selectedFile ? 'dz--has-file' : ''}"
@@ -244,15 +265,21 @@
                 </div>
                 <button
                   class="btn-primary"
-                  disabled={isUploading}
+                  disabled={isAnalyzing}
                   onclick={triggerUpload}
                 >
-                  {#if isUploading}
-                    <span class="spin"></span> Mapping & Generating MCQs…
+                  {#if isAnalyzing}
+                    <span class="spin"></span> Mapping Document Blocks…
                   {:else}
                     🚀 Analyse & Ingest Document
                   {/if}
                 </button>
+              </div>
+            {/if}
+
+            {#if mappingStatus === 'error'}
+              <div class="mapping-status mapping-status--error">
+                ❌ Analysis block processing failed. Check network telemetry logs or verify backend container health.
               </div>
             {/if}
           {/if}
@@ -793,6 +820,33 @@
     animation: anw-spin 0.7s linear infinite;
   }
   @keyframes anw-spin { to { transform: rotate(360deg); } }
+  @keyframes anw-fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  /* ── Mapping status panels ────────────────────────────────────────────────── */
+  .mapping-status {
+    margin-top: 16px;
+    padding: 14px 16px;
+    border-radius: 10px;
+    text-align: center;
+    animation: anw-fade-in 0.25s ease;
+  }
+  .mapping-status--success {
+    background: rgba(16,185,129,0.08);
+    border: 1px solid rgba(16,185,129,0.25);
+  }
+  .ms-text {
+    color: #34d399;
+    font-size: 0.875rem;
+    font-weight: 500;
+    margin: 0 0 12px;
+  }
+  .ms-cta { width: 100%; }
+  .mapping-status--error {
+    background: rgba(239,68,68,0.08);
+    border: 1px solid rgba(239,68,68,0.25);
+    color: #f87171;
+    font-size: 0.875rem;
+  }
 
   /* ── Responsive ───────────────────────────────────────────────────────────── */
   @media (max-width: 700px) {
