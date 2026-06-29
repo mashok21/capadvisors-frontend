@@ -218,7 +218,9 @@
                 <div class="file-preview w-full">
                   <span class="fp-icon">📄</span>
                   <div class="fp-meta">
-                    <span class="fp-name" title={selectedFile.name}>{selectedFile.name.length > 4 ? selectedFile.name.slice(0, 4) + '...' : selectedFile.name}</span>
+                    <div style="display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; max-width: 240px;">
+                      <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #ffffff; font-weight: 500; font-size: 0.875rem;" title={selectedFile.name}>{selectedFile.name}</span>
+                    </div>
                     <span class="fp-size">{(selectedFile.size / 1024).toFixed(1)} KB</span>
                   </div>
                   <button
@@ -614,15 +616,6 @@
     flex-direction: column;
     gap: 2px;
     overflow: hidden;
-  }
-  .fp-name {
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: rgba(255,255,255,0.8);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    display: block;
   }
   .fp-size { font-size: 0.72rem; color: rgba(255,255,255,0.35); }
   .fp-remove {
