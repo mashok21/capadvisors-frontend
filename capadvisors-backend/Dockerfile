@@ -10,6 +10,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates qpdf \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /app/target/release/capadvisors-backend /usr/local/bin/capadvisors-backend
+WORKDIR /usr/local/bin
+COPY --from=builder /app/target/release/capadvisors-backend ./capadvisors-backend
 
-CMD ["capadvisors-backend"]
+CMD ["./capadvisors-backend"]
