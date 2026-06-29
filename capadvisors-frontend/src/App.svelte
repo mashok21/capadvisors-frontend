@@ -708,7 +708,7 @@
   {/if}
 
   <!-- Admin users get the sequential workflow; quiz_takers get the two-column grid -->
-  {#if activeView === 'nexus' && isAdmin}
+  {#if activeView === 'nexus'}
     <AdminNexusWorkflow {baseApiUrl} />
   {/if}
 
