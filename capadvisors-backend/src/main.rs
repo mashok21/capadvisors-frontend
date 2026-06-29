@@ -5,7 +5,8 @@ use axum::{
 };
 use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::Semaphore;
-use tower_http::cors::{Any, CorsLayer};
+use http::HeaderValue;
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 
 mod db;
 mod middleware {
@@ -51,8 +52,15 @@ impl FromRef<AppState> for Arc<Semaphore> {
 async fn main() {
     dotenvy::dotenv().ok();
 
+    let allowed_origins = [
+        "https://www.capadvisors.in".parse::<HeaderValue>().unwrap(),
+        "https://capadvisors.in".parse::<HeaderValue>().unwrap(),
+        "https://capadvisors-frontend.vercel.app".parse::<HeaderValue>().unwrap(),
+        "http://localhost:5173".parse::<HeaderValue>().unwrap(),
+    ];
+
     let cors = CorsLayer::new()
-        .allow_origin(Any)
+        .allow_origin(AllowOrigin::list(allowed_origins))
         .allow_methods(Any)
         .allow_headers(Any);
 
