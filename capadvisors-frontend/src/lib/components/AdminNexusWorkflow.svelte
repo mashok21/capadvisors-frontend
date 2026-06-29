@@ -64,6 +64,35 @@
   // View masking (super admin impersonation preview)
   let currentViewMode = $state('super_admin'); // 'super_admin' | 'admin' | 'user'
 
+  // Phase 3 — question browser
+  let generatedQuestions    = $state([]);
+  let currentQuestionIndex  = $state(0);
+  let revealExplanation     = $state(false);
+  let isFetchingQuestions   = $state(false);
+
+  async function loadChapterQuestions(chapterId) {
+    if (!chapterId) return;
+    isFetchingQuestions = true;
+    try {
+      const res = await fetch(`${baseApiUrl}/api/nexus/chapters/${chapterId}/questions`);
+      if (res.ok) {
+        generatedQuestions   = await res.json();
+        currentQuestionIndex = 0;
+        revealExplanation    = false;
+      }
+    } catch (err) {
+      console.error('Failed to load quiz sequence:', err);
+    } finally {
+      isFetchingQuestions = false;
+    }
+  }
+
+  $effect(() => {
+    if (phase === 3 && selectedChapter) {
+      loadChapterQuestions(selectedChapter.id);
+    }
+  });
+
   // Phase 4
   let hackTitle    = $state('');
   let hackDate     = $state('');
@@ -322,15 +351,91 @@
         </div>
       </div>
 
-    <!-- ── Phase 3: Inline AI Quiz Proofing ────────────────────────────────── -->
+    <!-- ── Phase 3: Exam Question Generator & Quiz Proofing ───────────────── -->
     {:else if phase === 3}
       <div class="phase-panel phase-panel--wide">
         <div class="phase-hd">
-          <h2 class="phase-title">Inline AI Quiz Proofing & Edits</h2>
-          <p class="phase-desc">Review generated questions from the staging queue. Improvise, refine, approve or reject each entry before promotion to the live databank.</p>
+          <h2 class="phase-title">Exam Question Generator & Quiz Proofing</h2>
+          <p class="phase-desc">Preview AI-generated questions for the ingested chapter, then approve or refine from the staging queue below.</p>
         </div>
 
-        <AdminReviewPanel {baseApiUrl} />
+        <!-- Question browser -->
+        <div class="p3-grid">
+          <div class="p3-sidebar">
+            <h3 class="p3-sidebar-hd">Active Chapter</h3>
+            <div class="p3-ch-card">
+              📚 {selectedChapter?.chapter_code}<br />
+              <span style="font-size:0.78rem; color: rgba(147,197,253,0.7);">{selectedChapter?.chapter_name}</span>
+            </div>
+            {#if generatedQuestions.length > 0}
+              <p class="p3-qcount">{generatedQuestions.length} question{generatedQuestions.length !== 1 ? 's' : ''} loaded</p>
+            {/if}
+          </div>
+
+          <div class="p3-canvas">
+            {#if isFetchingQuestions}
+              <div class="p3-loading">
+                <span class="spin"></span>
+                Querying Turso for generated question sequence…
+              </div>
+            {:else if generatedQuestions.length === 0}
+              <div class="p3-empty">
+                📭 No questions found for this chapter yet.<br />
+                <span>Upload a document in Phase 2 to generate questions.</span>
+              </div>
+            {:else}
+              {@const q = generatedQuestions[currentQuestionIndex]}
+              <div class="mcq-container">
+                <div class="mcq-header">
+                  <span class="mcq-badge">Question {currentQuestionIndex + 1} of {generatedQuestions.length}</span>
+                  <span class="mcq-difficulty">Difficulty: {q.difficulty}</span>
+                </div>
+
+                <p class="mcq-text">{q.scenario}</p>
+
+                <div class="options-grid">
+                  {#each q.options as option, idx}
+                    <button class="option-btn {q.correct_option === option ? (revealExplanation ? 'option-btn--correct' : '') : ''}">
+                      <span class="option-prefix">{String.fromCharCode(65 + idx)}.</span>
+                      {option.replace(/^Option [A-D]:\s*/i, '')}
+                    </button>
+                  {/each}
+                </div>
+
+                <button class="explanation-toggle" onclick={() => (revealExplanation = !revealExplanation)}>
+                  {revealExplanation ? '🔼 Hide Explanation' : '🔽 Reveal Gemini Explanatory Rationale'}
+                </button>
+
+                {#if revealExplanation}
+                  <div class="explanation-panel">
+                    <strong>Strategic Context:</strong><br />
+                    {q.explanation}
+                  </div>
+                {/if}
+
+                <div class="nav-actions">
+                  <button
+                    class="nav-btn"
+                    disabled={currentQuestionIndex === 0}
+                    onclick={() => { currentQuestionIndex--; revealExplanation = false; }}
+                  >← Previous</button>
+                  <span class="nav-progress">{currentQuestionIndex + 1} / {generatedQuestions.length}</span>
+                  <button
+                    class="nav-btn"
+                    disabled={currentQuestionIndex >= generatedQuestions.length - 1}
+                    onclick={() => { currentQuestionIndex++; revealExplanation = false; }}
+                  >Next →</button>
+                </div>
+              </div>
+            {/if}
+          </div>
+        </div>
+
+        <!-- Staging queue management -->
+        <div class="p3-staging-section">
+          <h3 class="p3-staging-hd">Staging Queue — Approve & Refine</h3>
+          <AdminReviewPanel {baseApiUrl} />
+        </div>
 
         <div class="phase-ft">
           <button class="btn-ghost" onclick={() => (phase = 2)}>← Back</button>
@@ -871,6 +976,146 @@
     border: 1px solid rgba(239,68,68,0.25);
     color: #f87171;
     font-size: 0.875rem;
+  }
+
+  /* ── Phase 3: Question browser ───────────────────────────────────────────── */
+  .p3-grid { display: grid; grid-template-columns: 260px 1fr; gap: 1.5rem; margin-top: 1rem; }
+  .p3-sidebar {
+    background: #0b0f19;
+    border: 1px solid #1e293b;
+    border-radius: 8px;
+    padding: 1rem;
+    height: fit-content;
+  }
+  .p3-sidebar-hd {
+    color: #64748b;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 0 0 10px;
+  }
+  .p3-ch-card {
+    background: #111026;
+    border: 1px solid #3b82f6;
+    border-radius: 6px;
+    padding: 10px 12px;
+    color: #93c5fd;
+    font-size: 0.85rem;
+    font-weight: 500;
+    line-height: 1.5;
+  }
+  .p3-qcount { font-size: 0.75rem; color: #475569; margin: 10px 0 0; }
+  .p3-canvas { display: flex; flex-direction: column; gap: 1rem; }
+  .p3-loading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #94a3b8;
+    font-size: 0.9rem;
+    padding: 40px 24px;
+    justify-content: center;
+  }
+  .p3-empty {
+    text-align: center;
+    color: #475569;
+    font-size: 0.9rem;
+    padding: 48px 24px;
+    border: 1px dashed rgba(255,255,255,0.07);
+    border-radius: 12px;
+    line-height: 2;
+  }
+  .p3-empty span { font-size: 0.82rem; }
+  .mcq-container {
+    background: #131b2e;
+    border: 1px solid #1e293b;
+    border-radius: 12px;
+    padding: 28px;
+    box-shadow: 0 10px 15px -3px rgba(0,0,0,0.3);
+  }
+  .mcq-header { display: flex; justify-content: space-between; align-items: center; }
+  .mcq-badge {
+    display: inline-block;
+    font-size: 0.65rem;
+    background: #2563eb;
+    color: #fff;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .mcq-difficulty { color: #64748b; font-size: 0.75rem; font-weight: 500; }
+  .mcq-text { color: #f8fafc; font-size: 1rem; font-weight: 500; margin: 20px 0 0; line-height: 1.6; }
+  .options-grid { display: grid; gap: 10px; margin-top: 16px; }
+  .option-btn {
+    background: #0b0f19;
+    border: 1px solid #1e293b;
+    color: #cbd5e1;
+    text-align: left;
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-size: 0.88rem;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+    width: 100%;
+  }
+  .option-btn:hover { background: #1e293b; border-color: #475569; color: #f8fafc; }
+  .option-btn--correct { border-color: #10b981; background: rgba(16,185,129,0.08); color: #a7f3d0; }
+  .option-prefix { font-weight: 700; color: #3b82f6; margin-right: 6px; }
+  .explanation-toggle {
+    background: none;
+    border: none;
+    color: #3b82f6;
+    cursor: pointer;
+    font-size: 0.82rem;
+    font-weight: 600;
+    padding: 0;
+    margin-top: 20px;
+    display: block;
+  }
+  .explanation-toggle:hover { color: #60a5fa; }
+  .explanation-panel {
+    margin-top: 12px;
+    background: #060b13;
+    border-left: 4px solid #10b981;
+    padding: 14px 16px;
+    border-radius: 4px;
+    color: #a7f3d0;
+    font-size: 0.85rem;
+    line-height: 1.65;
+    animation: anw-fade-in 0.2s ease;
+  }
+  .nav-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 24px;
+    border-top: 1px solid #1e293b;
+    padding-top: 20px;
+  }
+  .nav-btn {
+    background: #1e293b;
+    border: 1px solid #334155;
+    color: #f8fafc;
+    padding: 6px 16px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .nav-btn:hover:not(:disabled) { background: #334155; }
+  .nav-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+  .nav-progress { font-size: 0.8rem; color: #64748b; }
+  .p3-staging-section { margin-top: 2.5rem; border-top: 1px solid #1e293b; padding-top: 1.5rem; }
+  .p3-staging-hd {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #64748b;
+    margin: 0 0 1rem;
   }
 
   /* ── View-masking strip ──────────────────────────────────────────────────── */
