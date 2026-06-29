@@ -447,7 +447,9 @@ Classify the study text to its AFM-CHxx code. The chapters are:
 - AFM-CH14: Mergers, Acquisitions and Corporate Restructuring
 - AFM-CH15: Startup Finance
 
-Generate exactly 4 to 5 multiple-choice questions matching CA Final difficulty based strictly on the text.";
+Generate exactly 4 to 5 multiple-choice questions matching CA Final difficulty based strictly on the text.
+
+CRITICAL CONSTRAINT: You must NEVER include, mention, or reference the chapter code (e.g., 'AFM-CH01') or the chapter title anywhere inside the scenario text or options. The scenario must read like an authentic, professional corporate finance problem statement from an advanced accounting examination.";
 
     let targeted_hint = if let Some(ch) = target_chapter {
         format!("\nNOTE: You MUST classify this text as code: \"{}\" ({})", ch.code, ch.name)
@@ -582,7 +584,7 @@ fn classify_by_keywords(text: &str, chapters: &[ChapterInfo]) -> String {
 fn generate_mock_questions(chapter_code: &str, _chunk_text: &str) -> GeminiResponse {
     let mock_q1 = GeminiQuestion {
         difficulty: "Hard".to_string(),
-        scenario: format!("Evaluating strategic financial parameters under {} requirements: a CA Final scenario analyzing investment payoffs and discount volatility.", chapter_code),
+        scenario: "An enterprise is evaluating its strategic capital allocations and funding mixes under tight fiscal constraints. Review the impact on equity returns if the corporate policy shifts toward zero-debt internal growth structures.".to_string(),
         options: vec![
             "Option A: Implement immediate hedging to secure foreign currency flows.".to_string(),
             "Option B: Re-evaluate the cost of capital using adjusted beta coefficients.".to_string(),
@@ -595,7 +597,7 @@ fn generate_mock_questions(chapter_code: &str, _chunk_text: &str) -> GeminiRespo
 
     let mock_q2 = GeminiQuestion {
         difficulty: "Hard".to_string(),
-        scenario: format!("A corporate entity assesses risk exposures related to {}. Review calculations of portfolio returns and asset correlation.", chapter_code),
+        scenario: "A multinational treasury unit is evaluating its overall portfolio correlation matrix following an abrupt shift in global asset values. Review the optimal asset diversification strategy under elevated volatility.".to_string(),
         options: vec![
             "Option A: Execute a share swap ratio based on free cash flows.".to_string(),
             "Option B: Perform a value-at-risk (VaR) mapping of all foreign assets.".to_string(),
