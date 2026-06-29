@@ -202,7 +202,7 @@
           {#each CHAPTERS as ch}
             <button
               class="ch-card {selectedChapter?.id === ch.id ? 'ch-card--selected' : ''}"
-              onclick={() => (selectedChapter = ch)}
+              onclick={() => { selectedChapter = ch; phase = 3; }}
             >
               <span class="ch-code">{ch.chapter_code}</span>
               <span class="ch-name">{ch.chapter_name}</span>
