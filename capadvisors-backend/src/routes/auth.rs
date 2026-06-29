@@ -198,7 +198,7 @@ pub async fn login(
             .is_ok()
         {
             if let Ok(bootstrap_email) = std::env::var("BOOTSTRAP_SUPER_ADMIN") {
-                if db_email == bootstrap_email.trim().to_lowercase() {
+                if db_email.to_lowercase() == bootstrap_email.to_lowercase() {
                     role = "super_admin".to_string();
                 }
             }

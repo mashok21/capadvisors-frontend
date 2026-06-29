@@ -132,12 +132,47 @@ pub async fn map_document(
         move || -> Result<String, (StatusCode, String)> {
             let path = tmp.path().to_path_buf();
             let text = if file_name_bg.to_lowercase().ends_with(".pdf") {
-                pdf_extract::extract_text(&path).map_err(|e| {
-                    (
-                        StatusCode::UNPROCESSABLE_ENTITY,
-                        format!("PDF parsing failed: {}", e),
-                    )
-                })?
+                // In-memory/local decryption pass using lopdf
+                if let Ok(mut doc) = lopdf::Document::load(&path) {
+                    if doc.is_encrypted() {
+                        let _ = doc.decrypt(""); // decrypt with empty password standard fallback
+                        let _ = doc.save(&path); // save it back decrypted
+                    }
+                }
+
+                match pdf_extract::extract_text(&path) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        // Attempt fallback decryption via qpdf (useful if encrypted or print-restricted)
+                        let decrypted_path = path.with_extension("decrypted.pdf");
+                        let output = std::process::Command::new("qpdf")
+                            .arg("--decrypt")
+                            .arg("--password=")
+                            .arg(&path)
+                            .arg(&decrypted_path)
+                            .output();
+
+                        match output {
+                            Ok(out) if out.status.success() => {
+                                let t = pdf_extract::extract_text(&decrypted_path).map_err(|err| {
+                                    std::fs::remove_file(&decrypted_path).ok();
+                                    (
+                                        StatusCode::UNPROCESSABLE_ENTITY,
+                                        format!("Failed to parse decrypted PDF: {}", err),
+                                    )
+                                })?;
+                                std::fs::remove_file(&decrypted_path).ok();
+                                t
+                            }
+                            _ => {
+                                return Err((
+                                    StatusCode::UNPROCESSABLE_ENTITY,
+                                    format!("PDF parsing failed (original error: {}). Fallback qpdf decryption failed or not installed.", e),
+                                ));
+                            }
+                        }
+                    }
+                }
             } else {
                 std::fs::read_to_string(&path).map_err(|e| {
                     (
