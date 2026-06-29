@@ -89,7 +89,7 @@
 
   $effect(() => {
     if (phase === 3 && selectedChapter) {
-      loadChapterQuestions(selectedChapter.id);
+      loadChapterQuestions(selectedChapter.chapter_code);
     }
   });
 

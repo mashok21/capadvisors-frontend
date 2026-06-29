@@ -626,9 +626,23 @@ pub struct QuestionResponse {
 
 pub async fn get_chapter_questions(
     State(db): State<DbHelper>,
-    axum::extract::Path(chapter_id): axum::extract::Path<String>,
+    axum::extract::Path(chapter_param): axum::extract::Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let conn = db.get_conn();
+
+    let resolved_id: String = if chapter_param.contains('-') {
+        chapter_param.clone()
+    } else {
+        let mut stmt = conn.prepare("SELECT id FROM chapters WHERE chapter_code = ?1").await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to prepare lookup: {}", e)))?;
+        let mut rows = stmt.query(libsql::params![chapter_param]).await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to execute lookup: {}", e)))?;
+        match rows.next().await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))? {
+            Some(row) => row.get(0).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?,
+            None => return Ok((StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "chapter not found"}))).into_response()),
+        }
+    };
+
     let query = "
         SELECT id, chapter_id, difficulty, scenario, options_json, correct_option, explanation
         FROM questions
@@ -636,7 +650,7 @@ pub async fn get_chapter_questions(
     ";
     let mut stmt = conn.prepare(query).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to prepare query: {}", e)))?;
-    let mut rows = stmt.query(libsql::params![chapter_id]).await
+    let mut rows = stmt.query(libsql::params![resolved_id]).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to execute query: {}", e)))?;
 
     let mut results = Vec::new();
