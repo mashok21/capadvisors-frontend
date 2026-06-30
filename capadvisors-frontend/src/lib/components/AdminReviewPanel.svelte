@@ -23,6 +23,19 @@
   // Expandable variant cards
   let openVariant = $state(null); // variant_number | null
 
+  // Manual question creation
+  let showCreateForm = $state(false);
+  let isCreating = $state(false);
+  let createChapterId = $state('');
+  let createDifficulty = $state('Hard');
+  let createScenario = $state('');
+  let createOptionA = $state('');
+  let createOptionB = $state('');
+  let createOptionC = $state('');
+  let createOptionD = $state('');
+  let createCorrectOption = $state('');
+  let createExplanation = $state('');
+
   // ── Derived ───────────────────────────────────────────────────────────────
   let parsedRubric = $derived.by(() => {
     if (!selectedQuestion?.scoring_rubric_json) return null;
@@ -218,6 +231,51 @@
   }
 
   onMount(loadQueue);
+
+  // ── Create manual question ────────────────────────────────────────────────
+  async function handleCreate() {
+    if (!createChapterId || !createScenario || !createOptionA || !createOptionB || !createCorrectOption) {
+      flash('Fill all required fields (chapter, scenario, at least 2 options, correct answer).', 'err');
+      return;
+    }
+    isCreating = true;
+    try {
+      const options = [createOptionA, createOptionB, createOptionC, createOptionD].filter(o => o.trim());
+      const res = await fetch(`${baseApiUrl}/api/admin/questions/staging`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({
+          chapter_id: createChapterId,
+          difficulty: createDifficulty,
+          scenario: createScenario,
+          options,
+          correct_option: createCorrectOption,
+          explanation: createExplanation,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      flash('Question staged successfully.');
+      showCreateForm = false;
+      resetCreateForm();
+      await loadQueue();
+    } catch (e) {
+      flash(`Create failed: ${e.message}`, 'err');
+    } finally {
+      isCreating = false;
+    }
+  }
+
+  function resetCreateForm() {
+    createChapterId = '';
+    createDifficulty = 'Hard';
+    createScenario = '';
+    createOptionA = '';
+    createOptionB = '';
+    createOptionC = '';
+    createOptionD = '';
+    createCorrectOption = '';
+    createExplanation = '';
+  }
 </script>
 
 <!-- ── Root ───────────────────────────────────────────────────────────────── -->
@@ -238,7 +296,65 @@
       {#if isProcessing === 'load'}<span class="spin-sm"></span>{:else}🔄{/if}
       Refresh
     </button>
+    <button class="topbar-create" onclick={() => { showCreateForm = !showCreateForm; if (showCreateForm) resetCreateForm(); }} disabled={busy}>
+      {#if showCreateForm}✕ Cancel{:else}+ Create Question{/if}
+    </button>
   </div>
+
+  <!-- Manual question creation form -->
+  {#if showCreateForm}
+    <div class="create-form" transition:slide={{ duration: 200 }}>
+      <div class="cf-header">Manual Question Entry</div>
+
+      <div class="cf-grid">
+        <div class="cf-field">
+          <label class="cf-label" for="cf-chapter">Chapter ID</label>
+          <input id="cf-chapter" class="cf-input" bind:value={createChapterId} placeholder="e.g. abb15c57-03c0-40a5-80f7-ce98be4e71b8" disabled={isCreating} />
+        </div>
+        <div class="cf-field">
+          <label class="cf-label" for="cf-difficulty">Difficulty</label>
+          <select id="cf-difficulty" class="cf-input" bind:value={createDifficulty} disabled={isCreating}>
+            <option value="Medium">Medium</option>
+            <option value="Hard">Hard</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="cf-field">
+        <label class="cf-label" for="cf-scenario">Scenario / Question Text</label>
+        <textarea id="cf-scenario" class="cf-textarea" rows="4" bind:value={createScenario} placeholder="Write the question scenario..." disabled={isCreating}></textarea>
+      </div>
+
+      <div class="cf-field">
+        <label class="cf-label" for="cf-opt-a">Answer Options</label>
+        <div class="cf-options">
+          <input class="cf-input" bind:value={createOptionA} placeholder="Option A" disabled={isCreating} />
+          <input class="cf-input" bind:value={createOptionB} placeholder="Option B" disabled={isCreating} />
+          <input class="cf-input" bind:value={createOptionC} placeholder="Option C (optional)" disabled={isCreating} />
+          <input class="cf-input" bind:value={createOptionD} placeholder="Option D (optional)" disabled={isCreating} />
+        </div>
+      </div>
+
+      <div class="cf-grid">
+        <div class="cf-field">
+          <label class="cf-label" for="cf-correct">Correct Answer (full option text)</label>
+          <input id="cf-correct" class="cf-input" bind:value={createCorrectOption} placeholder="e.g. Option B: Re-evaluate the cost of capital..." disabled={isCreating} />
+        </div>
+      </div>
+
+      <div class="cf-field">
+        <label class="cf-label" for="cf-explanation">Explanation</label>
+        <textarea id="cf-explanation" class="cf-textarea" rows="3" bind:value={createExplanation} placeholder="Explain the correct answer..." disabled={isCreating}></textarea>
+      </div>
+
+      <div class="cf-actions">
+        <button class="btn btn-approve" onclick={handleCreate} disabled={isCreating}>
+          {#if isCreating}<span class="spin-sm"></span> Creating…{:else}✓ Stage Question{/if}
+        </button>
+        <button class="btn btn-save" onclick={() => { showCreateForm = false; resetCreateForm(); }} disabled={isCreating}>Cancel</button>
+      </div>
+    </div>
+  {/if}
 
   <!-- Flash message -->
   {#if flashMsg}
@@ -612,6 +728,83 @@
     color: #fff;
   }
   .topbar-refresh:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .topbar-create {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(52, 211, 153, 0.12);
+    border: 1px solid rgba(52, 211, 153, 0.3);
+    color: #34d399;
+    border-radius: 8px;
+    padding: 6px 13px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .topbar-create:hover:not(:disabled) {
+    background: rgba(52, 211, 153, 0.2);
+    color: #fff;
+  }
+  .topbar-create:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ── Create form ──────────────────────────────────────────────────────── */
+  .create-form {
+    padding: 16px 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(52, 211, 153, 0.03);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .cf-header {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: rgba(52, 211, 153, 0.8);
+  }
+  .cf-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .cf-field { display: flex; flex-direction: column; gap: 4px; }
+  .cf-label {
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.35);
+  }
+  .cf-input, .cf-textarea {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 6px;
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 0.8rem;
+    font-family: inherit;
+    padding: 8px 10px;
+    transition: border-color 0.15s;
+  }
+  .cf-input:focus, .cf-textarea:focus {
+    outline: none;
+    border-color: rgba(52, 211, 153, 0.4);
+    background: rgba(255, 255, 255, 0.06);
+  }
+  .cf-input:disabled, .cf-textarea:disabled { opacity: 0.45; cursor: not-allowed; }
+  .cf-textarea { resize: vertical; line-height: 1.5; }
+  .cf-options {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .cf-actions {
+    display: flex;
+    gap: 8px;
+    padding-top: 4px;
+  }
 
   /* ── Flash messages ──────────────────────────────────────────────────── */
   .flash {
