@@ -241,7 +241,7 @@
     isCreating = true;
     try {
       const options = [createOptionA, createOptionB, createOptionC, createOptionD].filter(o => o.trim());
-      const res = await fetch(`${baseApiUrl}/api/admin/questions/staging`, {
+      const res = await fetch(`${baseApiUrl}/api/admin/questions/staging/create`, {
         method: 'POST',
         headers: authHeaders(),
         body: JSON.stringify({
