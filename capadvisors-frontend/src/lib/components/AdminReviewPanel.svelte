@@ -136,7 +136,7 @@
     if (!selectedQuestion || !isDirty) return;
     isProcessing = 'save';
     try {
-      const res = await fetch(`${baseApiUrl}/api/admin/questions/staging/${selectedQuestion.id}`, {
+      const res = await fetch(`${baseApiUrl}/api/admin/questions/staging/item/${selectedQuestion.id}`, {
         method: 'PUT',
         headers: authHeaders(),
         body: JSON.stringify({
@@ -160,7 +160,7 @@
     if (!selectedQuestion) return;
     isProcessing = 'improvise';
     try {
-      const res = await fetch(`${baseApiUrl}/api/admin/questions/staging/${selectedQuestion.id}/improvise`, {
+      const res = await fetch(`${baseApiUrl}/api/admin/questions/staging/item/${selectedQuestion.id}/improvise`, {
         method: 'POST',
         headers: authHeaders(),
         body: JSON.stringify({ admin_guidance: guidanceText.trim() || null }),
@@ -179,7 +179,7 @@
     if (!selectedQuestion) return;
     isProcessing = 'refine';
     try {
-      const res = await fetch(`${baseApiUrl}/api/admin/questions/staging/${selectedQuestion.id}/refine-answer`, {
+      const res = await fetch(`${baseApiUrl}/api/admin/questions/staging/item/${selectedQuestion.id}/refine-answer`, {
         method: 'POST',
         headers: authHeaders(),
         body: JSON.stringify({ admin_guidance: guidanceText.trim() || null }),
@@ -198,7 +198,7 @@
     if (!selectedQuestion) return;
     isProcessing = 'approve';
     try {
-      const res = await fetch(`${baseApiUrl}/api/admin/questions/staging/${selectedQuestion.id}/approve`, {
+      const res = await fetch(`${baseApiUrl}/api/admin/questions/staging/item/${selectedQuestion.id}/approve`, {
         method: 'POST',
         headers: authHeaders(),
       });
@@ -216,7 +216,7 @@
     if (!selectedQuestion) return;
     isProcessing = 'reject';
     try {
-      const res = await fetch(`${baseApiUrl}/api/admin/questions/staging/${selectedQuestion.id}/reject`, {
+      const res = await fetch(`${baseApiUrl}/api/admin/questions/staging/item/${selectedQuestion.id}/reject`, {
         method: 'DELETE',
         headers: authHeaders(),
       });
