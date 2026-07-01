@@ -445,6 +445,76 @@
   let authIsLoading = $state(false);
   let authError = $state('');
 
+  // Forgot-password flow: 'credentials' | 'forgot-request' | 'forgot-confirm'
+  let authMode = $state('credentials');
+  let forgotEmail = $state('');
+  let forgotIsLoading = $state(false);
+  let forgotMessage = $state('');
+  let forgotError = $state('');
+  let resetToken = $state('');
+  let resetNewPassword = $state('');
+  let resetIsLoading = $state(false);
+  let resetError = $state('');
+  let resetSuccess = $state(false);
+
+  function returnToSignIn() {
+    authMode = 'credentials';
+    forgotEmail = '';
+    forgotMessage = '';
+    forgotError = '';
+    resetToken = '';
+    resetNewPassword = '';
+    resetError = '';
+    resetSuccess = false;
+  }
+
+  async function handleForgotRequest(e) {
+    e.preventDefault();
+    forgotIsLoading = true;
+    forgotError = '';
+    forgotMessage = '';
+    try {
+      const res = await fetch(`${baseApiUrl}/api/auth/password-reset/request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        forgotMessage = data.message || 'If an account with that email exists, a password reset link has been issued.';
+      } else {
+        forgotError = data.message || 'Could not process the request.';
+      }
+    } catch (_) {
+      forgotError = 'Could not reach the server. Please ensure the backend is running.';
+    } finally {
+      forgotIsLoading = false;
+    }
+  }
+
+  async function handleResetConfirm(e) {
+    e.preventDefault();
+    resetIsLoading = true;
+    resetError = '';
+    try {
+      const res = await fetch(`${baseApiUrl}/api/auth/password-reset/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: resetToken.trim(), new_password: resetNewPassword })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        resetSuccess = true;
+      } else {
+        resetError = data.message || 'Could not reset password.';
+      }
+    } catch (_) {
+      resetError = 'Could not reach the server. Please ensure the backend is running.';
+    } finally {
+      resetIsLoading = false;
+    }
+  }
+
   async function handleAuthSubmit(e) {
     e.preventDefault();
     authIsLoading = true;
@@ -484,72 +554,186 @@
 {#if !auth.isAuthenticated}
 <main class="auth-container">
   <div class="auth-card">
-    <div class="auth-header">
-      <div class="auth-logo-mark">CAPADVISORS</div>
-      <h2 class="auth-title">{authIsRegistering ? 'Create Account' : 'Welcome Back'}</h2>
-      <p class="auth-subtitle">CA Final AFM Nexus Platform</p>
-    </div>
+    {#if authMode === 'credentials'}
+      <div class="auth-header">
+        <div class="auth-logo-mark">CAPADVISORS</div>
+        <h2 class="auth-title">{authIsRegistering ? 'Create Account' : 'Welcome Back'}</h2>
+        <p class="auth-subtitle">CA Final AFM Nexus Platform</p>
+      </div>
 
-    {#if authError}
-      <div class="auth-error-banner">{authError}</div>
-    {/if}
+      {#if authError}
+        <div class="auth-error-banner">{authError}</div>
+      {/if}
 
-    <form class="auth-form" onsubmit={handleAuthSubmit}>
-      {#if authIsRegistering}
+      <form class="auth-form" onsubmit={handleAuthSubmit}>
+        {#if authIsRegistering}
+          <div class="auth-field">
+            <label for="auth-name">Full Name</label>
+            <input
+              id="auth-name"
+              type="text"
+              bind:value={authName}
+              placeholder="Ashok M"
+              required
+              autocomplete="name"
+            />
+          </div>
+        {/if}
         <div class="auth-field">
-          <label for="auth-name">Full Name</label>
+          <label for="auth-email">Email Address</label>
           <input
-            id="auth-name"
-            type="text"
-            bind:value={authName}
-            placeholder="Ashok M"
+            id="auth-email"
+            type="email"
+            bind:value={authEmail}
+            placeholder="your@email.com"
             required
-            autocomplete="name"
+            autocomplete="email"
           />
         </div>
-      {/if}
-      <div class="auth-field">
-        <label for="auth-email">Email Address</label>
-        <input
-          id="auth-email"
-          type="email"
-          bind:value={authEmail}
-          placeholder="your@email.com"
-          required
-          autocomplete="email"
-        />
-      </div>
-      <div class="auth-field">
-        <label for="auth-password">Password</label>
-        <input
-          id="auth-password"
-          type="password"
-          bind:value={authPassword}
-          placeholder="••••••••"
-          required
-          autocomplete={authIsRegistering ? 'new-password' : 'current-password'}
-        />
-      </div>
-      <button type="submit" class="auth-submit-btn" disabled={authIsLoading}>
-        {#if authIsLoading}
-          <span class="spinner"></span>
-          {authIsRegistering ? 'Creating account...' : 'Signing in...'}
-        {:else}
-          {authIsRegistering ? 'Create Account' : 'Sign In'}
-        {/if}
-      </button>
-    </form>
+        <div class="auth-field">
+          <label for="auth-password">Password</label>
+          <input
+            id="auth-password"
+            type="password"
+            bind:value={authPassword}
+            placeholder="••••••••"
+            required
+            autocomplete={authIsRegistering ? 'new-password' : 'current-password'}
+          />
+        </div>
+        <button type="submit" class="auth-submit-btn" disabled={authIsLoading}>
+          {#if authIsLoading}
+            <span class="spinner"></span>
+            {authIsRegistering ? 'Creating account...' : 'Signing in...'}
+          {:else}
+            {authIsRegistering ? 'Create Account' : 'Sign In'}
+          {/if}
+        </button>
+      </form>
 
-    <p class="auth-toggle-row">
-      {authIsRegistering ? 'Already have an account?' : "Don't have an account?"}
-      <button
-        type="button"
-        class="auth-toggle-btn"
-        onclick={() => { authIsRegistering = !authIsRegistering; authError = ''; authName = ''; }}
-      >
-        {authIsRegistering ? 'Sign In' : 'Register'}
-      </button>
-    </p>
+      {#if !authIsRegistering}
+        <p class="auth-toggle-row">
+          <button type="button" class="auth-toggle-btn" onclick={() => { authMode = 'forgot-request'; authError = ''; }}>
+            Forgot password?
+          </button>
+        </p>
+      {/if}
+
+      <p class="auth-toggle-row">
+        {authIsRegistering ? 'Already have an account?' : "Don't have an account?"}
+        <button
+          type="button"
+          class="auth-toggle-btn"
+          onclick={() => { authIsRegistering = !authIsRegistering; authError = ''; authName = ''; }}
+        >
+          {authIsRegistering ? 'Sign In' : 'Register'}
+        </button>
+      </p>
+
+    {:else if authMode === 'forgot-request'}
+      <div class="auth-header">
+        <div class="auth-logo-mark">CAPADVISORS</div>
+        <h2 class="auth-title">Reset Password</h2>
+        <p class="auth-subtitle">Enter your account email to request a reset code</p>
+      </div>
+
+      {#if forgotError}
+        <div class="auth-error-banner">{forgotError}</div>
+      {/if}
+
+      {#if forgotMessage}
+        <div class="auth-success-banner">{forgotMessage}</div>
+      {/if}
+
+      <form class="auth-form" onsubmit={handleForgotRequest}>
+        <div class="auth-field">
+          <label for="forgot-email">Email Address</label>
+          <input
+            id="forgot-email"
+            type="email"
+            bind:value={forgotEmail}
+            placeholder="your@email.com"
+            required
+            autocomplete="email"
+          />
+        </div>
+        <button type="submit" class="auth-submit-btn" disabled={forgotIsLoading}>
+          {#if forgotIsLoading}
+            <span class="spinner"></span> Sending request...
+          {:else}
+            Request Reset Code
+          {/if}
+        </button>
+      </form>
+
+      <p class="auth-toggle-row">
+        <button type="button" class="auth-toggle-btn" onclick={() => { authMode = 'forgot-confirm'; forgotError = ''; }}>
+          I already have a reset code
+        </button>
+      </p>
+      <p class="auth-toggle-row">
+        <button type="button" class="auth-toggle-btn" onclick={returnToSignIn}>
+          Back to Sign In
+        </button>
+      </p>
+
+    {:else if authMode === 'forgot-confirm'}
+      <div class="auth-header">
+        <div class="auth-logo-mark">CAPADVISORS</div>
+        <h2 class="auth-title">Set New Password</h2>
+        <p class="auth-subtitle">Enter the reset code and your new password</p>
+      </div>
+
+      {#if resetSuccess}
+        <div class="auth-success-banner">Password updated successfully. You can now sign in.</div>
+        <p class="auth-toggle-row">
+          <button type="button" class="auth-toggle-btn" onclick={returnToSignIn}>
+            Back to Sign In
+          </button>
+        </p>
+      {:else}
+        {#if resetError}
+          <div class="auth-error-banner">{resetError}</div>
+        {/if}
+
+        <form class="auth-form" onsubmit={handleResetConfirm}>
+          <div class="auth-field">
+            <label for="reset-token">Reset Code</label>
+            <input
+              id="reset-token"
+              type="text"
+              bind:value={resetToken}
+              placeholder="Paste the reset code"
+              required
+            />
+          </div>
+          <div class="auth-field">
+            <label for="reset-new-password">New Password</label>
+            <input
+              id="reset-new-password"
+              type="password"
+              bind:value={resetNewPassword}
+              placeholder="••••••••"
+              required
+              autocomplete="new-password"
+            />
+          </div>
+          <button type="submit" class="auth-submit-btn" disabled={resetIsLoading}>
+            {#if resetIsLoading}
+              <span class="spinner"></span> Updating password...
+            {:else}
+              Update Password
+            {/if}
+          </button>
+        </form>
+
+        <p class="auth-toggle-row">
+          <button type="button" class="auth-toggle-btn" onclick={returnToSignIn}>
+            Back to Sign In
+          </button>
+        </p>
+      {/if}
+    {/if}
   </div>
 </main>
 {:else}

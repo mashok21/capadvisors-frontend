@@ -1627,6 +1627,18 @@ body {
   line-height: 1.45;
 }
 
+.auth-success-banner {
+  background: rgba(52, 211, 153, 0.08);
+  border: 1px solid rgba(52, 211, 153, 0.25);
+  color: #6ee7b7;
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  text-align: center;
+  margin-bottom: 1.25rem;
+  line-height: 1.45;
+}
+
 .auth-form {
   display: flex;
   flex-direction: column;
