@@ -284,6 +284,7 @@
     try {
       const res = await fetch(`${baseApiUrl}/api/nexus/upload`, {
         method: "POST",
+        headers: { 'Authorization': `Bearer ${auth.token}` },
         body: formData
       });
 
@@ -701,12 +702,12 @@
   {/if}
 
   <!-- Admin users get the sequential workflow; quiz_takers get the two-column grid -->
-  {#if activeView === 'nexus'}
+  {#if activeView === 'nexus' && isAdmin}
     <AdminNexusWorkflow {baseApiUrl} />
   {/if}
 
   <!-- Main Grid Layout (quiz_taker view) -->
-  <div class="dashboard-grid" class:hidden={activeView !== 'nexus' || isAdmin}>
+  <div class="dashboard-grid" class:hidden={activeView !== 'nexus' || isAdmin} class:single-column={!isAdmin}>
     <!-- Left Column: Coverage List -->
     <main class="dashboard-section main-coverage" id="status-dashboard">
       <div class="section-header">
@@ -745,7 +746,8 @@
       </div>
     </main>
 
-    <!-- Right Column: Document Upload Controls -->
+    <!-- Right Column: Document Upload Controls (admin-only — uploads require RequireAdmin server-side) -->
+    {#if isAdmin}
     <aside class="dashboard-section side-controls">
       <div class="section-header">
         <h2 class="section-title">Upload Study Document</h2>
@@ -860,6 +862,7 @@
         </p>
       </div>
     </aside>
+    {/if}
   </div>
 
   <!-- Modal: Upload Summary Results -->

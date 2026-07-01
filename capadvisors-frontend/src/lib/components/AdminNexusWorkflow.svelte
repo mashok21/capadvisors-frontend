@@ -131,6 +131,7 @@
     try {
       const res = await fetch(`${baseApiUrl}/api/nexus/upload`, {
         method: 'POST',
+        headers: { 'Authorization': `Bearer ${auth.token}` },
         body: fd,
       });
       if (res.ok) {
