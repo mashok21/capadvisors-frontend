@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { fade, slide } from 'svelte/transition';
   import { auth } from '../auth.svelte.js';
+  import { CHAPTERS } from '../chapters.js';
 
   let { baseApiUrl = '' } = $props();
 
@@ -23,8 +24,9 @@
   // Expandable variant cards
   let openVariant = $state(null); // variant_number | null
 
-  // Manual question creation
+  // Question creation — manual entry or AI auto-generate
   let showCreateForm = $state(false);
+  let createMode = $state('manual'); // 'manual' | 'ai'
   let isCreating = $state(false);
   let createChapterId = $state('');
   let createDifficulty = $state('Hard');
@@ -35,6 +37,13 @@
   let createOptionD = $state('');
   let createCorrectOption = $state('');
   let createExplanation = $state('');
+
+  // AI auto-generate
+  let isGenerating = $state(false);
+  let genChapterId = $state('');
+  let genDifficulty = $state('Hard');
+  let genCount = $state(3);
+  let genContextMaterial = $state('');
 
   // ── Derived ───────────────────────────────────────────────────────────────
   let parsedRubric = $derived.by(() => {
@@ -276,6 +285,44 @@
     createCorrectOption = '';
     createExplanation = '';
   }
+
+  // ── AI auto-generate ─────────────────────────────────────────────────────
+  async function handleGenerate() {
+    if (!genChapterId) {
+      flash('Choose a chapter to generate questions for.', 'err');
+      return;
+    }
+    isGenerating = true;
+    try {
+      const res = await fetch(`${baseApiUrl}/api/admin/questions/generate`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({
+          chapter_id: genChapterId,
+          difficulty: genDifficulty,
+          count: genCount,
+          context_material: genContextMaterial.trim() || null,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const created = await res.json();
+      flash(`${created.length} question${created.length !== 1 ? 's' : ''} generated and staged for review.`);
+      showCreateForm = false;
+      resetGenerateForm();
+      await loadQueue();
+    } catch (e) {
+      flash(`Generate failed: ${e.message}`, 'err');
+    } finally {
+      isGenerating = false;
+    }
+  }
+
+  function resetGenerateForm() {
+    genChapterId = '';
+    genDifficulty = 'Hard';
+    genCount = 3;
+    genContextMaterial = '';
+  }
 </script>
 
 <!-- ── Root ───────────────────────────────────────────────────────────────── -->
@@ -296,14 +343,28 @@
       {#if isProcessing === 'load'}<span class="spin-sm"></span>{:else}🔄{/if}
       Refresh
     </button>
-    <button class="topbar-create" onclick={() => { showCreateForm = !showCreateForm; if (showCreateForm) resetCreateForm(); }} disabled={busy}>
+    <button class="topbar-create" onclick={() => { showCreateForm = !showCreateForm; if (showCreateForm) { resetCreateForm(); resetGenerateForm(); } }} disabled={busy}>
       {#if showCreateForm}✕ Cancel{:else}+ Create Question{/if}
     </button>
   </div>
 
-  <!-- Manual question creation form -->
+  <!-- Question creation form — manual entry or AI auto-generate -->
   {#if showCreateForm}
     <div class="create-form" transition:slide={{ duration: 200 }}>
+      <div class="cf-mode-toggle">
+        <button
+          type="button"
+          class="cf-mode-btn {createMode === 'manual' ? 'active' : ''}"
+          onclick={() => createMode = 'manual'}
+        >✏️ Manual Entry</button>
+        <button
+          type="button"
+          class="cf-mode-btn {createMode === 'ai' ? 'active' : ''}"
+          onclick={() => createMode = 'ai'}
+        >✨ Auto-Generate (AI)</button>
+      </div>
+
+      {#if createMode === 'manual'}
       <div class="cf-header">Manual Question Entry</div>
 
       <div class="cf-grid">
@@ -353,6 +414,47 @@
         </button>
         <button class="btn btn-save" onclick={() => { showCreateForm = false; resetCreateForm(); }} disabled={isCreating}>Cancel</button>
       </div>
+
+      {:else}
+      <div class="cf-header">✨ AI Auto-Generate</div>
+      <p class="cf-hint">Generated questions land in the staging queue below for review, editing, and approval — nothing is added to the live quiz database automatically.</p>
+
+      <div class="cf-grid">
+        <div class="cf-field">
+          <label class="cf-label" for="gen-chapter">Chapter</label>
+          <select id="gen-chapter" class="cf-input" bind:value={genChapterId} disabled={isGenerating}>
+            <option value="">-- Choose Chapter --</option>
+            {#each CHAPTERS as ch}
+              <option value={ch.chapter_code}>{ch.chapter_code}: {ch.chapter_name}</option>
+            {/each}
+          </select>
+        </div>
+        <div class="cf-field">
+          <label class="cf-label" for="gen-difficulty">Difficulty</label>
+          <select id="gen-difficulty" class="cf-input" bind:value={genDifficulty} disabled={isGenerating}>
+            <option value="Medium">Medium</option>
+            <option value="Hard">Hard</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="cf-field">
+        <label class="cf-label" for="gen-count">Number of Questions</label>
+        <input id="gen-count" class="cf-input" type="number" min="1" max="10" bind:value={genCount} disabled={isGenerating} />
+      </div>
+
+      <div class="cf-field">
+        <label class="cf-label" for="gen-context">Reference Material (optional)</label>
+        <textarea id="gen-context" class="cf-textarea" rows="4" bind:value={genContextMaterial} placeholder="Paste specific notes or source text for the AI to ground the questions in — leave blank to generate from chapter knowledge alone." disabled={isGenerating}></textarea>
+      </div>
+
+      <div class="cf-actions">
+        <button class="btn btn-approve" onclick={handleGenerate} disabled={isGenerating}>
+          {#if isGenerating}<span class="spin-sm"></span> Generating…{:else}✨ Auto-Generate Questions{/if}
+        </button>
+        <button class="btn btn-save" onclick={() => { showCreateForm = false; resetGenerateForm(); }} disabled={isGenerating}>Cancel</button>
+      </div>
+      {/if}
     </div>
   {/if}
 
@@ -764,6 +866,30 @@
     letter-spacing: 0.05em;
     text-transform: uppercase;
     color: rgba(52, 211, 153, 0.8);
+  }
+  .cf-mode-toggle { display: flex; gap: 8px; }
+  .cf-mode-btn {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    color: rgba(255, 255, 255, 0.55);
+    border-radius: 8px;
+    padding: 7px 14px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .cf-mode-btn:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
+  .cf-mode-btn.active {
+    background: rgba(96, 165, 250, 0.14);
+    border-color: rgba(96, 165, 250, 0.4);
+    color: #60a5fa;
+  }
+  .cf-hint {
+    font-size: 0.76rem;
+    color: rgba(255, 255, 255, 0.4);
+    margin: -4px 0 4px;
+    line-height: 1.4;
   }
   .cf-grid {
     display: grid;
